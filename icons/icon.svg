@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Background -->
+  <rect width="512" height="512" rx="96" fill="#1A1A2E"/>
+  <!-- Music note glyph -->
+  <g fill="#E94560">
+    <!-- Note head (bottom) -->
+    <ellipse cx="174" cy="358" rx="52" ry="38" transform="rotate(-15 174 358)"/>
+    <!-- Note stem -->
+    <rect x="218" y="150" width="22" height="208" rx="11"/>
+    <!-- Flag / beam top -->
+    <path d="M240 150 C300 160, 340 200, 320 260 C300 240, 265 230, 240 230 Z"/>
+  </g>
+</svg>
