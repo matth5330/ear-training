@@ -17,11 +17,11 @@ Open `http://localhost:3000`. The install prompt will appear in the address bar 
 ### In a dev container (VS Code)
 Requires Docker Desktop (running) and the **Dev Containers** extension.
 1. Open the project folder in VS Code → **Dev Containers: Reopen in Container**
-2. In the container terminal:  → port 3000 is forwarded and opens in your browser
+2. In the container terminal: `serve .` → port 3000 is forwarded and opens in your browser
 
-The container includes Node 22, the GitHub CLI, the Claude Code CLI and extension, and .
-**Claude Code skips permission prompts inside the container only** (); outside it, prompts work as normal.
-Claude Code's login is kept in a Docker volume (), so it survives container rebuilds.
+The container includes Node 22, the GitHub CLI, the Claude Code CLI and extension, and `serve`.
+**Claude Code skips permission prompts inside the container only** (`bypassPermissions`); outside it, prompts work as normal.
+Claude Code's login is kept in a Docker volume (`eartrain-claude-config`), so it survives container rebuilds.
 
 ### After installing as PWA
 Runs in its own window from your taskbar/Start menu, fully offline after the first load.
