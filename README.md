@@ -58,6 +58,15 @@ Runs in its own window from your taskbar/Start menu, fully offline after the fir
 - Chord quality cards with character descriptions
 - Scale / mode cards
 - Chord progression cards
+- Tap any entry to hear it (intervals play melodic then harmonic; chords arpeggiated then blocked)
+
+**Achievements**
+- 16 badges across sessions, streaks, combos, accuracy, XP and breadth
+- Toast notification on unlock; full badge grid on the Progress tab
+
+**Backup**
+- Export progress (XP, stats, skills, badges) to a JSON file
+- Import a backup to restore on another browser or device
 
 ---
 
@@ -65,9 +74,6 @@ Runs in its own window from your taskbar/Start menu, fully offline after the fir
 
 | Feature | Effort | Notes |
 |---|---|---|
-| Playback buttons in Learn tab | Small | Audio engine already exists, just needs wiring |
-| Badges / achievements | Small | XP and streak data already tracked |
-| Progress export / backup | Small | LocalStorage → JSON download |
 | Multiple instrument timbres | Medium | Add guitar/strings options to audio engine |
 | Melodic dictation | Large | New exercise type — transcribe a short melody |
 | Microphone input | Large | Pitch detection for sight-singing / perfect pitch check |

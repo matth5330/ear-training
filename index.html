@@ -110,14 +110,16 @@
       </div>
       <div class="section-title">Accuracy by Category</div>
       <div id="accuracy-bars" class="accuracy-bars"></div>
-      <div class="section-title">Recent Activity</div>
-      <div id="recent-activity" class="recent-activity">
-        <p class="muted-text">Complete some exercises to see your progress!</p>
+      <div class="section-title section-title-row">
+        <span>Achievements</span>
+        <span class="section-count" id="achievements-count">0 / 0</span>
       </div>
+      <div id="achievements-grid" class="badges-grid"></div>
     </section>
 
     <!-- Learn Tab -->
     <section id="tab-learn" class="tab-content">
+      <p class="learn-hint muted-text">Tap any item to hear it, played from C.</p>
       <div class="section-title">Interval Reference</div>
       <div class="learn-card">
         <table class="reference-table" id="interval-table">
@@ -215,6 +217,21 @@
 
       <div class="section-title">Progress</div>
       <div class="settings-card">
+        <div class="setting-row">
+          <div class="setting-label-block">
+            <span class="setting-label">Back up progress</span>
+            <span class="setting-sub">Download a file with your XP, skills and badges</span>
+          </div>
+          <button class="btn-ghost" id="btn-export">Export</button>
+        </div>
+        <div class="setting-row">
+          <div class="setting-label-block">
+            <span class="setting-label">Restore from backup</span>
+            <span class="setting-sub">Replaces your current progress</span>
+          </div>
+          <button class="btn-ghost" id="btn-import">Import</button>
+          <input type="file" id="import-file" accept="application/json,.json" hidden />
+        </div>
         <div class="setting-row">
           <label class="setting-label">Reset all progress and skills</label>
           <button class="btn-danger" id="btn-reset">Reset</button>
@@ -341,7 +358,10 @@
 
   <script src="js/theory.js"></script>
   <script src="js/audio.js"></script>
+  <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
   <script src="js/adaptive.js"></script>
+  <script src="js/achievements.js"></script>
   <script src="js/exercises.js"></script>
   <script src="js/app.js"></script>
   <script>

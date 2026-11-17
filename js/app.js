@@ -5,38 +5,56 @@
 /* ── App State ── */
 const STATE_KEY = 'eartrain_state';
 
-let state = {
-  streak: 0,
-  lastPracticeDate: null,
-  xp: 0,
-  totalSessions: 0,
-  sessionLength: 15,
+function defaultState() {
+  return {
+    streak: 0,
+    lastPracticeDate: null,
+    xp: 0,
+    totalSessions: 0,
+    sessionLength: 15,
 
-  // Session
-  sessionPlan: [],
-  sessionIndex: 0,
-  sessionCorrect: 0,
-  sessionXp: 0,
-  sessionStats: {},    // { type: { correct, total } }
+    // Lifetime stats (used by achievements)
+    stats: {
+      totalAnswered:   0,
+      totalCorrect:    0,
+      bestCombo:       0,
+      perfectSessions: 0,
+      fastCorrect:     0,
+    },
+    achievements: {},    // { achievementId: unlockedTimestamp }
 
-  // Current exercise
-  exercise: null,
-  answered: false,
-  startTime: null,
-  advanceTimer: null,
+    // Session
+    sessionPlan: [],
+    sessionIndex: 0,
+    sessionCorrect: 0,
+    sessionXp: 0,
+    sessionStats: {},    // { type: { correct, total } }
+    combo: 0,            // consecutive correct answers
 
-  // UI
-  currentTab: 'home',
+    // Current exercise
+    exercise: null,
+    answered: false,
+    startTime: null,
+    advanceTimer: null,
 
-  // Settings (ToneDear features)
-  settings: {
-    intervalDirection: 'ascending', // 'ascending'|'descending'|'harmonic'|'mixed'
-    fixedRoot:         false,        // always use C4 as root for intervals
-    playbackSpeed:     'normal',     // 'fast'|'normal'|'slow'
-    autoProceed:       false,        // advance immediately on correct answer
-    endlessMode:       false,        // never-ending session
-  },
-};
+    // UI
+    currentTab: 'home',
+
+    // Settings
+    settings: {
+      intervalDirection: 'ascending', // 'ascending'|'descending'|'harmonic'|'mixed'
+      fixedRoot:         false,        // always use C4 as root for intervals
+      playbackSpeed:     'normal',     // 'fast'|'normal'|'slow'
+      autoProceed:       false,        // advance immediately on correct answer
+      endlessMode:       false,        // never-ending session
+    },
+  };
+}
+
+let state = defaultState();
+
+// Keys that get written to localStorage / backup files
+const PERSIST_KEYS = ['streak', 'lastPracticeDate', 'xp', 'totalSessions', 'sessionLength', 'stats', 'achievements', 'settings'];
 
 /* ── All exercise types ── */
 const ALL_TYPES = ['interval', 'chord', 'scale', 'functional', 'pitch', 'progression'];
@@ -58,32 +76,35 @@ const TYPE_NAMES = {
 };
 
 /* ── Persistence ── */
+function applySavedState(saved) {
+  if (!saved || typeof saved !== 'object') return;
+  PERSIST_KEYS.forEach(key => {
+    if (!(key in saved)) return;
+    const val = saved[key];
+    if (['stats', 'settings', 'achievements'].includes(key)) {
+      if (val && typeof val === 'object') state[key] = Object.assign(state[key], val);
+    } else {
+      state[key] = val;
+    }
+  });
+}
+
 function loadState() {
   try {
     const raw = localStorage.getItem(STATE_KEY);
-    if (raw) {
-      const saved = JSON.parse(raw);
-      // Deep merge settings
-      if (saved.settings) {
-        state.settings = Object.assign(state.settings, saved.settings);
-      }
-      const { settings, ...rest } = saved;
-      Object.assign(state, rest);
-    }
+    if (raw) applySavedState(JSON.parse(raw));
   } catch (e) { /* use defaults */ }
+}
+
+function persistableState() {
+  const out = {};
+  PERSIST_KEYS.forEach(k => { out[k] = state[k]; });
+  return out;
 }
 
 function saveState() {
   try {
-    const toSave = {
-      streak: state.streak,
-      lastPracticeDate: state.lastPracticeDate,
-      xp: state.xp,
-      totalSessions: state.totalSessions,
-      sessionLength: state.sessionLength,
-      settings: state.settings,
-    };
-    localStorage.setItem(STATE_KEY, JSON.stringify(toSave));
+    localStorage.setItem(STATE_KEY, JSON.stringify(persistableState()));
   } catch (e) { console.warn('saveState failed', e); }
 }
 
@@ -220,47 +241,123 @@ function renderProgressTab() {
 
   const canvas = document.getElementById('radar-chart');
   if (canvas) drawRadarChart(canvas);
+
+  renderAchievements();
+}
+
+function renderAchievements() {
+  const grid  = document.getElementById('achievements-grid');
+  const count = document.getElementById('achievements-count');
+  if (!grid) return;
+
+  const unlockedCount = ACHIEVEMENTS.filter(a => state.achievements[a.id]).length;
+  if (count) count.textContent = `${unlockedCount} / ${ACHIEVEMENTS.length}`;
+
+  grid.innerHTML = ACHIEVEMENTS.map(a => {
+    const when = state.achievements[a.id];
+    const sub  = when ? `Unlocked ${new Date(when).toLocaleDateString()}` : a.desc;
+    return `
+      <div class="badge ${when ? 'unlocked' : 'locked'}" title="${a.desc}">
+        <div class="badge-icon">${a.icon}</div>
+        <div class="badge-name">${a.name}</div>
+        <div class="badge-desc">${sub}</div>
+      </div>`;
+  }).join('');
 }
 
 /* ── Learn Tab ── */
+const PLAY_ICON = '<span class="learn-play-icon" aria-hidden="true">&#9654;</span>';
+
 function renderLearnTab() {
   const tbody = document.querySelector('#interval-table tbody');
   if (tbody) {
     tbody.innerHTML = INTERVALS.slice(1).map(iv => `
-      <tr>
-        <td><strong>${iv.name}</strong> (${iv.abbr})</td>
+      <tr class="playable" data-play="interval" data-id="${iv.semitones}" tabindex="0">
+        <td>${PLAY_ICON}<strong>${iv.name}</strong> (${iv.abbr})</td>
         <td>${iv.semitones}</td>
         <td>${iv.ref}</td>
       </tr>`).join('');
   }
 
+  const card = (kind, id, title, sub) => `
+    <div class="learn-mini-card playable" data-play="${kind}" data-id="${id}" tabindex="0">
+      <div class="learn-mini-title">${PLAY_ICON}${title}</div>
+      <div class="learn-mini-sub">${sub}</div>
+    </div>`;
+
   const chordContainer = document.getElementById('chord-cards');
   if (chordContainer) {
-    chordContainer.innerHTML = CHORD_TYPES.map(c => `
-      <div class="learn-mini-card">
-        <div class="learn-mini-title">${c.name} (${c.abbr})</div>
-        <div class="learn-mini-sub">${c.character}</div>
-      </div>`).join('');
+    chordContainer.innerHTML = CHORD_TYPES.map(c => card('chord', c.id, `${c.name} (${c.abbr})`, c.character)).join('');
   }
 
   const scaleContainer = document.getElementById('scale-cards');
   if (scaleContainer) {
-    scaleContainer.innerHTML = SCALE_TYPES.map(s => `
-      <div class="learn-mini-card">
-        <div class="learn-mini-title">${s.name}</div>
-        <div class="learn-mini-sub">${s.character}</div>
-      </div>`).join('');
+    scaleContainer.innerHTML = SCALE_TYPES.map(s => card('scale', s.id, s.name, s.character)).join('');
   }
 
-  // Chord progressions reference
   const progContainer = document.getElementById('prog-cards');
   if (progContainer) {
-    progContainer.innerHTML = CHORD_PROGRESSIONS.map(p => `
-      <div class="learn-mini-card">
-        <div class="learn-mini-title">${p.name}</div>
-        <div class="learn-mini-sub">${p.description}</div>
-      </div>`).join('');
+    progContainer.innerHTML = CHORD_PROGRESSIONS.map(p => card('progression', p.id, p.name, p.description)).join('');
   }
+}
+
+/**
+ * Play a Learn-tab example, rooted on C.
+ * Returns the duration in seconds so the caller can show a "playing" state.
+ */
+function playLearnExample(kind, id) {
+  const sp   = getSpeedMult();
+  const t    = audio.now() + 0.05;
+  const root = 60; // C4
+
+  switch (kind) {
+    case 'interval': {
+      const semis = parseInt(id, 10);
+      // Melodic (ascending), then harmonic
+      audio.playNote(root,         t,             0.9 * sp, 0.5);
+      audio.playNote(root + semis, t + 0.7 * sp,  0.9 * sp, 0.5);
+      audio.playChord([root, root + semis], t + 1.7 * sp, 1.2 * sp, 0.35);
+      return 3.0 * sp;
+    }
+    case 'chord': {
+      const chord = CHORD_TYPES.find(c => c.id === id);
+      if (!chord) return 0;
+      const notes   = chord.intervals.map(i => root + i);
+      const spacing = 0.18 * sp;
+      const blockAt = t + notes.length * spacing + 0.4 * sp;
+      audio.playArpeggio(notes, t, spacing, 1.0 * sp, 0.4);
+      audio.playChord(notes, blockAt, 1.5 * sp, 0.3);
+      return (blockAt - t) + 1.5 * sp;
+    }
+    case 'scale': {
+      const scale = SCALE_TYPES.find(s => s.id === id);
+      if (!scale) return 0;
+      return audio.playScale(root, scale.intervals, t, true, sp) - t;
+    }
+    case 'progression': {
+      const prog = CHORD_PROGRESSIONS.find(p => p.id === id);
+      if (!prog) return 0;
+      const gap = 0.9 * sp;
+      const bass = 48; // C3 — keeps the voicings in a comfortable register
+      prog.degrees.forEach((deg, i) => {
+        const quality = CHORD_TYPES.find(c => c.id === prog.qualities[i]);
+        const notes   = quality.intervals.map(iv => bass + deg + iv);
+        audio.playChord(notes, t + i * gap, 0.85 * sp, 0.28);
+      });
+      return prog.degrees.length * gap + 0.85 * sp;
+    }
+  }
+  return 0;
+}
+
+function handleLearnPlay(el) {
+  audio.resume().then(() => {
+    document.querySelectorAll('.playable.playing').forEach(p => p.classList.remove('playing'));
+    const secs = playLearnExample(el.dataset.play, el.dataset.id);
+    el.classList.add('playing');
+    clearTimeout(el._playTimer);
+    el._playTimer = setTimeout(() => el.classList.remove('playing'), secs * 1000);
+  });
 }
 
 /* ── Settings Tab ── */
@@ -310,6 +407,7 @@ function openExerciseModal(plan) {
   state.sessionCorrect = 0;
   state.sessionXp      = 0;
   state.sessionStats   = {};
+  state.combo          = 0;
 
   document.getElementById('modal-xp').textContent = '+0 XP';
 
@@ -441,12 +539,25 @@ function handleAnswer(choiceIndex) {
   state.sessionStats[ex.type].total++;
   if (correct) state.sessionStats[ex.type].correct++;
 
+  // Lifetime stats
+  const st = state.stats;
+  st.totalAnswered++;
+  if (correct) {
+    st.totalCorrect++;
+    state.combo++;
+    st.bestCombo = Math.max(st.bestCombo, state.combo);
+    if (responseTimeMs < 2000) st.fastCorrect++;
+  } else {
+    state.combo = 0;
+  }
+
   // Update Elo
   adaptive.update(ex.skillKey, correct, responseTimeMs);
   adaptive.update(`${ex.type}_overall`, correct, responseTimeMs);
 
   saveState();
   updateHeaderUI();
+  announceAchievements(checkAchievements());
 
   document.getElementById('modal-xp').textContent = `+${state.sessionXp} XP`;
 
@@ -487,7 +598,9 @@ function advanceExercise() {
 
 /* ── Session Complete ── */
 function showSessionComplete() {
-  const total    = state.sessionPlan.length;
+  clearTimeout(state.advanceTimer);
+  // Count answered questions (endless mode can stop mid-question)
+  const total    = Object.values(state.sessionStats).reduce((s, x) => s + x.total, 0);
   const correct  = state.sessionCorrect;
   const accuracy = total > 0 ? Math.round((correct / total) * 100) : 0;
 
@@ -513,11 +626,93 @@ function showSessionComplete() {
   }
 
   state.totalSessions++;
+  if (total >= 10 && correct === total) state.stats.perfectSessions++;
   updateStreak();
   saveState();
 
   document.getElementById('exercise-modal').classList.add('hidden');
   document.getElementById('session-modal').classList.remove('hidden');
+
+  announceAchievements(checkAchievements());
+}
+
+/* ══════════════════════════════════════════
+   TOASTS
+   ══════════════════════════════════════════ */
+
+function showToast(html, ms = 3500) {
+  const container = document.getElementById('toast-container');
+  if (!container) return;
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.innerHTML = html;
+  container.appendChild(el);
+  requestAnimationFrame(() => el.classList.add('show'));
+  setTimeout(() => {
+    el.classList.remove('show');
+    setTimeout(() => el.remove(), 300);
+  }, ms);
+}
+
+function announceAchievements(list) {
+  list.forEach((a, i) => {
+    setTimeout(() => showToast(
+      `<span class="toast-icon">${a.icon}</span>
+       <span><strong>Achievement unlocked</strong><br>${a.name}</span>`
+    ), i * 600);
+  });
+}
+
+/* ══════════════════════════════════════════
+   BACKUP: EXPORT / IMPORT
+   ══════════════════════════════════════════ */
+
+function exportProgress() {
+  const data = {
+    app: 'eartrain',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    state: persistableState(),
+    skills: adaptive.skills,
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `eartrain-backup-${todayStr()}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  showToast('Backup downloaded');
+}
+
+function importProgress(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    let data;
+    try {
+      data = JSON.parse(reader.result);
+    } catch (e) {
+      showToast('That file isn\'t valid JSON.');
+      return;
+    }
+    if (!data || data.app !== 'eartrain' || typeof data.state !== 'object' || typeof data.skills !== 'object') {
+      showToast('That doesn\'t look like an EarTrain backup.');
+      return;
+    }
+    if (!confirm('Replace your current progress with this backup?')) return;
+
+    localStorage.setItem('eartrain_skills', JSON.stringify(data.skills));
+    adaptive.load();
+    state = defaultState();
+    applySavedState(data.state);
+    saveState();
+    updateHeaderUI();
+    switchTab('settings');
+    showToast('Progress restored from backup');
+  };
+  reader.readAsText(file);
 }
 
 /* ══════════════════════════════════════════
@@ -781,16 +976,26 @@ function initSettings() {
         localStorage.removeItem('eartrain_skills');
         localStorage.removeItem(STATE_KEY);
         adaptive.skills = {};
-        state = {
-          streak: 0, lastPracticeDate: null, xp: 0, totalSessions: 0, sessionLength: 15,
-          sessionPlan: [], sessionIndex: 0, sessionCorrect: 0, sessionXp: 0,
-          sessionStats: {}, exercise: null, answered: false, startTime: null,
-          advanceTimer: null, currentTab: 'settings',
-          settings: { intervalDirection: 'ascending', fixedRoot: false, playbackSpeed: 'normal', autoProceed: false, endlessMode: false },
-        };
+        state = defaultState();
+        state.currentTab = 'settings';
         updateHeaderUI();
-        alert('Progress reset!');
+        renderSettingsTab();
+        showToast('Progress reset');
       }
+    });
+  }
+
+  // Backup export / import
+  const exportBtn = document.getElementById('btn-export');
+  if (exportBtn) exportBtn.addEventListener('click', exportProgress);
+
+  const importBtn   = document.getElementById('btn-import');
+  const importInput = document.getElementById('import-file');
+  if (importBtn && importInput) {
+    importBtn.addEventListener('click', () => importInput.click());
+    importInput.addEventListener('change', () => {
+      if (importInput.files[0]) importProgress(importInput.files[0]);
+      importInput.value = '';
     });
   }
 }
@@ -801,6 +1006,7 @@ function initSettings() {
 
 function initApp() {
   loadState();
+  checkAchievements(); // silently credit anything already earned before badges existed
   updateHeaderUI();
   buildPianoKeyboard();
   initSettings();
@@ -809,6 +1015,18 @@ function initApp() {
 
   // Keyboard shortcuts
   document.addEventListener('keydown', handleKeyDown);
+
+  // Learn tab: click (or Enter/Space on a focused item) to hear an example
+  const learnTab = document.getElementById('tab-learn');
+  learnTab.addEventListener('click', e => {
+    const el = e.target.closest('[data-play]');
+    if (el) handleLearnPlay(el);
+  });
+  learnTab.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const el = e.target.closest('[data-play]');
+    if (el) { e.preventDefault(); handleLearnPlay(el); }
+  });
 
   // Initialize audio on first user interaction
   document.addEventListener('click', () => {

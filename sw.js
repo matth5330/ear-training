@@ -1,4 +1,4 @@
-const CACHE = 'eartrain-v1';
+const CACHE = 'eartrain-v2';
 
 const ASSETS = [
   './',
@@ -8,6 +8,7 @@ const ASSETS = [
   './js/theory.js',
   './js/audio.js',
   './js/adaptive.js',
+  './js/achievements.js',
   './js/exercises.js',
   './js/app.js',
   './icons/icon.svg'
@@ -29,10 +30,21 @@ self.addEventListener('activate', event => {
   self.clients.claim();
 });
 
-// Cache-first: serve from cache, fall back to network
+// Network-first: always get the latest files when online, fall back to the
+// cache when offline. Successful responses refresh the cache.
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
+  if (new URL(event.request.url).origin !== self.location.origin) return;
+
   event.respondWith(
-    caches.match(event.request).then(cached => cached || fetch(event.request))
+    fetch(event.request)
+      .then(response => {
+        if (response.ok) {
+          const copy = response.clone();
+          caches.open(CACHE).then(cache => cache.put(event.request, copy));
+        }
+        return response;
+      })
+      .catch(() => caches.match(event.request))
   );
 });

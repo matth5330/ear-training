@@ -568,3 +568,61 @@ kbd {
   color: var(--error) !important;
 }
 .btn-stop-endless:hover { color: #ff6b6b !important; }
+
+/* ── Learn tab playback ── */
+.learn-hint { margin: 4px 0 -8px; font-size: 13px; }
+.playable { cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+.playable:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.learn-mini-card.playable:hover { border-color: var(--primary); }
+.learn-play-icon {
+  display: inline-block; font-size: 9px; color: var(--primary);
+  margin-right: 6px; vertical-align: 1px; opacity: 0.7;
+}
+.playable:hover .learn-play-icon { opacity: 1; }
+.playable.playing { border-color: var(--primary); background: rgba(233,69,96,0.1); }
+.playable.playing td { background: rgba(233,69,96,0.1); }
+.playable.playing .learn-play-icon { opacity: 1; animation: play-pulse 0.8s ease-in-out infinite; }
+@keyframes play-pulse { 50% { opacity: 0.3; } }
+
+/* ── Achievements ── */
+.section-title-row { display: flex; justify-content: space-between; align-items: baseline; }
+.section-count { font-size: 12px; letter-spacing: 0; color: var(--text); }
+.badges-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 8px; }
+.badge {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 12px 8px;
+  text-align: center; display: flex; flex-direction: column; gap: 4px; align-items: center;
+}
+.badge-icon { font-size: 26px; line-height: 1; }
+.badge-name { font-size: 12px; font-weight: 700; }
+.badge-desc { font-size: 11px; color: var(--text-muted); line-height: 1.3; }
+.badge.unlocked { border-color: rgba(233,69,96,0.5); }
+.badge.locked .badge-icon { filter: grayscale(1); opacity: 0.35; }
+.badge.locked .badge-name { color: var(--text-muted); }
+
+/* ── Ghost button (settings) ── */
+.btn-ghost {
+  background: var(--surface2); color: var(--text);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 8px 14px; font-size: 14px; font-weight: 600;
+  cursor: pointer; transition: border-color 0.2s;
+}
+.btn-ghost:hover { border-color: var(--primary); }
+
+/* ── Toasts ── */
+.toast-container {
+  position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
+  z-index: 300; display: flex; flex-direction: column; gap: 8px;
+  align-items: center; pointer-events: none;
+  width: calc(100% - 32px); max-width: 360px;
+}
+.toast {
+  background: var(--surface2); color: var(--text);
+  border: 1px solid var(--primary); border-radius: var(--radius);
+  box-shadow: var(--shadow); padding: 10px 14px; font-size: 14px;
+  display: flex; align-items: center; gap: 10px;
+  opacity: 0; transform: translateY(-8px);
+  transition: opacity 0.25s, transform 0.25s;
+}
+.toast.show { opacity: 1; transform: translateY(0); }
+.toast-icon { font-size: 24px; }
