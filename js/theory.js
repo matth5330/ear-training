@@ -143,6 +143,23 @@ const CHORD_PROGRESSIONS = [
   { id: 'I_V_IV',    name: 'I – V – IV',      degrees: [0,7,5],   qualities: ['maj','maj','maj'],         description: 'Country / reverse blues' },
 ];
 
+/* ── Progression Levels (ids, in difficulty order) ── */
+const PROGRESSION_LEVELS = [
+  ['I_IV_V', 'I_V_vi_IV', 'ii_V_I'],
+  ['I_IV_V', 'I_V_vi_IV', 'ii_V_I', 'I_vi_IV_V'],
+  CHORD_PROGRESSIONS.map(p => p.id),
+];
+
+/* ── Scale playback modes ── */
+const SCALE_PLAY_MODES = [
+  { id: 'ascending',  label: 'Ascending',     desc: 'Root up to the octave' },
+  { id: 'descending', label: 'Descending',    desc: 'Octave down to the root' },
+  { id: 'updown',     label: 'Up & down',     desc: 'Ascending, then back down' },
+  { id: 'random',     label: 'Random order',  desc: 'Tonic first, then the other notes shuffled' },
+  { id: 'diads',      label: 'Random diads',  desc: 'Tonic first, then random two-note pairs until every note has sounded' },
+  { id: 'mixed',      label: 'Mixed',         desc: 'A different playback style each question' },
+];
+
 /* ── Perfect Pitch Levels (note names) ── */
 const PERFECT_PITCH_LEVELS = [
   ['C','G'],

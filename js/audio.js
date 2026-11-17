@@ -17,10 +17,34 @@ class AudioEngine {
       this.masterGain = this.ctx.createGain();
       this.masterGain.gain.setValueAtTime(this.volume, this.ctx.currentTime);
       this.masterGain.connect(this.ctx.destination);
+      this._newBus();
       this._ready = true;
     } catch (e) {
       console.error('AudioEngine: Web Audio API not available', e);
     }
+  }
+
+  /**
+   * All notes route through a "voice bus" gain node. Because notes are
+   * scheduled ahead of time, the only reliable way to silence everything
+   * (including notes that haven't started yet) is to cut the bus and swap
+   * in a fresh one.
+   */
+  _newBus() {
+    this.bus = this.ctx.createGain();
+    this.bus.connect(this.masterGain);
+  }
+
+  /** Immediately silence everything currently playing or scheduled. */
+  stopAll() {
+    if (!this._ready || !this.ctx) return;
+    const old = this.bus;
+    const now = this.ctx.currentTime;
+    old.gain.cancelScheduledValues(now);
+    old.gain.setValueAtTime(old.gain.value, now);
+    old.gain.linearRampToValueAtTime(0, now + 0.02); // 20ms fade avoids a click
+    setTimeout(() => old.disconnect(), 50);
+    this._newBus();
   }
 
   async resume() {
@@ -63,7 +87,7 @@ class AudioEngine {
     ];
 
     const noteGain = this.ctx.createGain();
-    noteGain.connect(this.masterGain);
+    noteGain.connect(this.bus);
 
     // ADSR envelope
     const attack  = 0.005;
@@ -111,6 +135,16 @@ class AudioEngine {
     notes.forEach((midi, i) => {
       this.playNote(midi, start + i * spacing, duration, volume);
     });
+  }
+
+  /**
+   * Play a list of MIDI notes in order. Returns the end time.
+   */
+  playSequence(notes, startTime = 0, spacing = 0.22, duration = 0.6, volume = 0.5) {
+    if (!this._ready) this.init();
+    const start = startTime || this.ctx.currentTime;
+    notes.forEach((midi, i) => this.playNote(midi, start + i * spacing, duration, volume));
+    return start + Math.max(0, notes.length - 1) * spacing + duration;
   }
 
   /**

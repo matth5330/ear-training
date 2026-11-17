@@ -30,12 +30,16 @@ function defaultState() {
     sessionXp: 0,
     sessionStats: {},    // { type: { correct, total } }
     combo: 0,            // consecutive correct answers
+    sessionEndless: false,
+    sessionTypes: [],    // types to draw from when endless mode extends the plan
+    practice: {},        // per-session overrides from the setup screen (level, scaleMode, …)
 
     // Current exercise
     exercise: null,
     answered: false,
     startTime: null,
     advanceTimer: null,
+    autoPlayTimer: null,
 
     // UI
     currentTab: 'home',
@@ -46,7 +50,9 @@ function defaultState() {
       fixedRoot:         false,        // always use C4 as root for intervals
       playbackSpeed:     'normal',     // 'fast'|'normal'|'slow'
       autoProceed:       false,        // advance immediately on correct answer
-      endlessMode:       false,        // never-ending session
+      endlessMode:       false,        // never-ending session (daily workout)
+      scaleMode:         'ascending',  // see SCALE_PLAY_MODES
+      practiceSetup:     {},           // last-used setup per exercise type
     },
   };
 }
@@ -152,6 +158,7 @@ function switchTab(tabId) {
   if (navBtn) navBtn.classList.add('active');
 
   state.currentTab = tabId;
+  audio.stopAll(); // e.g. leaving the Learn tab mid-example
 
   switch (tabId) {
     case 'home':     renderHomeTab();     break;
@@ -196,12 +203,10 @@ function renderTrainTab() {
     { type: 'pitch',       icon: '◎', title: 'Perfect Pitch',  desc: 'Identify individual note names' },
     { type: 'progression', icon: '▶', title: 'Progressions',   desc: 'Identify common chord progressions' },
   ];
-  const maxLevels = { interval: INTERVAL_LEVELS.length, chord: CHORD_LEVELS.length, scale: SCALE_LEVELS.length, functional: FUNCTIONAL_LEVELS.length, pitch: PERFECT_PITCH_LEVELS.length, progression: 3 };
-
   const html = categories.map(cat => {
     const acc   = adaptive.getAccuracy(cat.type);
-    const level = adaptive.getLevel(cat.type, maxLevels[cat.type]);
-    const accText  = acc !== null ? `${acc}%` : 'New';
+    const level = adaptive.getLevel(cat.type, levelsFor(cat.type).length);
+    const accText  = acc !== null ? `${acc}% accuracy` : 'No data';
     const accClass = acc === null ? '' : acc >= 75 ? 'good' : 'warn';
     return `
       <div class="train-card">
@@ -211,10 +216,10 @@ function renderTrainTab() {
           <div class="train-card-sub">${cat.desc}</div>
           <div class="train-card-meta">
             <span class="meta-pill">Level ${level + 1}</span>
-            <span class="meta-pill ${accClass}">${accText} accuracy</span>
+            <span class="meta-pill ${accClass}">${accText}</span>
           </div>
         </div>
-        <button class="train-card-btn" onclick="startCategoryPractice('${cat.type}')">Practice</button>
+        <button class="train-card-btn" onclick="openPracticeSetup('${cat.type}')">Practice</button>
       </div>`;
   }).join('');
 
@@ -352,6 +357,7 @@ function playLearnExample(kind, id) {
 
 function handleLearnPlay(el) {
   audio.resume().then(() => {
+    audio.stopAll(); // one example at a time
     document.querySelectorAll('.playable.playing').forEach(p => p.classList.remove('playing'));
     const secs = playLearnExample(el.dataset.play, el.dataset.id);
     el.classList.add('playing');
@@ -374,6 +380,9 @@ function renderSettingsTab() {
   const speedSel = document.getElementById('playback-speed-select');
   if (speedSel) speedSel.value = state.settings.playbackSpeed;
 
+  const scaleSel = document.getElementById('scale-mode-select');
+  if (scaleSel) scaleSel.value = state.settings.scaleMode;
+
   const fixedRootChk = document.getElementById('fixed-root-toggle');
   if (fixedRootChk) fixedRootChk.checked = state.settings.fixedRoot;
 
@@ -388,40 +397,76 @@ function renderSettingsTab() {
    SESSION MANAGEMENT
    ══════════════════════════════════════════ */
 
+// Re-runs the last session type for the "Keep Going" button
+let lastLaunch = () => startDailyWorkout();
+
 function startDailyWorkout() {
   const total = state.sessionLength;
   const plan  = adaptive.generateSessionPlan(total, ALL_TYPES);
-  openExerciseModal(plan);
+  openExerciseModal(plan, { endless: state.settings.endlessMode, types: ALL_TYPES, practice: {} });
+  lastLaunch = startDailyWorkout;
 }
 
-function startCategoryPractice(type) {
-  const total = state.sessionLength;
-  const plan  = Array.from({ length: total }, () => ({ type }));
-  openExerciseModal(plan);
+/**
+ * Start a single-category session. Uses the given setup, or the last
+ * setup the user chose for this type (Home → Quick Practice skips the
+ * setup screen and lands here directly).
+ */
+function startCategoryPractice(type, setup = getPracticeSetup(type)) {
+  const endless = setup.length === 'endless';
+  const count   = endless ? state.sessionLength : setup.length;
+  const plan    = Array.from({ length: count }, () => ({ type }));
+  openExerciseModal(plan, {
+    endless,
+    types: [type],
+    practice: {
+      level:             setup.level === 'auto' ? undefined : setup.level,
+      intervalDirection: setup.intervalDirection,
+      scaleMode:         setup.scaleMode,
+    },
+  });
+  lastLaunch = () => startCategoryPractice(type, setup);
 }
 
-function openExerciseModal(plan) {
+function openExerciseModal(plan, opts) {
   audio.init();
+  audio.stopAll();
   state.sessionPlan    = plan;
   state.sessionIndex   = 0;
   state.sessionCorrect = 0;
   state.sessionXp      = 0;
   state.sessionStats   = {};
   state.combo          = 0;
+  state.sessionEndless = !!opts.endless;
+  state.sessionTypes   = opts.types;
+  state.practice       = opts.practice || {};
 
   document.getElementById('modal-xp').textContent = '+0 XP';
 
   // Show/hide stop button based on endless mode
   const stopBtn = document.getElementById('btn-stop-endless');
-  if (stopBtn) stopBtn.style.display = state.settings.endlessMode ? 'flex' : 'none';
+  if (stopBtn) stopBtn.style.display = state.sessionEndless ? 'flex' : 'none';
 
   document.getElementById('exercise-modal').classList.remove('hidden');
   showNextExercise();
 }
 
-function closeExerciseModal() {
-  document.getElementById('exercise-modal').classList.add('hidden');
+/** Cancel everything tied to the running exercise: timers and sound. */
+function haltExercise() {
   clearTimeout(state.advanceTimer);
+  clearTimeout(state.autoPlayTimer);
+  audio.stopAll();
+  document.getElementById('btn-play').classList.remove('playing');
+}
+
+function isExerciseOpen() {
+  return !document.getElementById('exercise-modal').classList.contains('hidden');
+}
+
+function closeExerciseModal() {
+  haltExercise();
+  document.getElementById('exercise-modal').classList.add('hidden');
+  state.exercise = null;
 }
 
 function closeSessionModal() {
@@ -431,26 +476,154 @@ function closeSessionModal() {
 
 function continueSession() {
   document.getElementById('session-modal').classList.add('hidden');
-  startDailyWorkout();
+  lastLaunch();
+}
+
+/* ══════════════════════════════════════════
+   PRACTICE SETUP SCREEN
+   ══════════════════════════════════════════ */
+
+/** What each difficulty level contains, as display labels. */
+function levelsFor(type) {
+  switch (type) {
+    case 'interval':    return INTERVAL_LEVELS.map(l => l.map(s => INTERVALS.find(i => i.semitones === s).abbr));
+    case 'chord':       return CHORD_LEVELS.map(l => l.map(id => CHORD_TYPES.find(c => c.id === id).abbr));
+    case 'scale':       return SCALE_LEVELS.map(l => l.map(id => SCALE_TYPES.find(s => s.id === id).name));
+    case 'functional':  return FUNCTIONAL_LEVELS.map(l => l.map(d => SCALE_DEGREES.find(x => x.degree === d).solfege));
+    case 'pitch':       return PERFECT_PITCH_LEVELS;
+    case 'progression': return PROGRESSION_LEVELS.map(l => l.map(id => CHORD_PROGRESSIONS.find(p => p.id === id).name));
+  }
+  return [[]];
+}
+
+function getPracticeSetup(type) {
+  const base = { length: state.sessionLength, level: 'auto' };
+  if (type === 'interval') base.intervalDirection = state.settings.intervalDirection;
+  if (type === 'scale')    base.scaleMode         = state.settings.scaleMode;
+  const saved = (state.settings.practiceSetup || {})[type] || {};
+  const setup = Object.assign(base, saved);
+  // Guard against a level that no longer exists
+  if (setup.level !== 'auto' && !(setup.level >= 0 && setup.level < levelsFor(type).length)) setup.level = 'auto';
+  return setup;
+}
+
+let setupDraft = null;
+
+function openPracticeSetup(type) {
+  setupDraft = Object.assign({ type }, getPracticeSetup(type));
+  renderPracticeSetup();
+  document.getElementById('setup-modal').classList.remove('hidden');
+}
+
+function closePracticeSetup() {
+  document.getElementById('setup-modal').classList.add('hidden');
+  setupDraft = null;
+}
+
+function segControl(field, options, current) {
+  return `<div class="seg" role="radiogroup" data-field="${field}">${options.map(o => `
+    <button type="button" role="radio" aria-checked="${String(o.value) === String(current)}"
+      class="seg-btn ${String(o.value) === String(current) ? 'active' : ''}"
+      data-value="${o.value}">${o.label}</button>`).join('')}</div>`;
+}
+
+function renderPracticeSetup() {
+  const d      = setupDraft;
+  const levels = levelsFor(d.type);
+  const auto   = adaptive.getLevel(d.type, levels.length);
+  const shown  = d.level === 'auto' ? auto : d.level;
+
+  const levelNote = d.level === 'auto'
+    ? `Adjusts to your answers. You're currently on level ${auto + 1}.`
+    : `Fixed at level ${d.level + 1} of ${levels.length}.`;
+
+  let extra = '';
+  if (d.type === 'interval') {
+    extra = `
+      <div class="setup-field">
+        <div class="setup-label">Direction</div>
+        ${segControl('intervalDirection', [
+          { value: 'ascending', label: 'Up' }, { value: 'descending', label: 'Down' },
+          { value: 'harmonic', label: 'Together' }, { value: 'mixed', label: 'Mixed' },
+        ], d.intervalDirection)}
+      </div>`;
+  }
+  if (d.type === 'scale') {
+    const modeDesc = SCALE_PLAY_MODES.find(m => m.id === d.scaleMode).desc;
+    extra = `
+      <div class="setup-field">
+        <div class="setup-label">Playback</div>
+        ${segControl('scaleMode', SCALE_PLAY_MODES.map(m => ({ value: m.id, label: m.label })), d.scaleMode)}
+        <div class="setup-note">${modeDesc}</div>
+      </div>`;
+  }
+
+  document.getElementById('setup-body').innerHTML = `
+    <h2 class="setup-title">${TYPE_NAMES[d.type]}</h2>
+
+    <div class="setup-field">
+      <div class="setup-label">Questions</div>
+      ${segControl('length', [
+        { value: 5, label: '5' }, { value: 10, label: '10' }, { value: 15, label: '15' },
+        { value: 20, label: '20' }, { value: 'endless', label: 'Endless' },
+      ], d.length)}
+    </div>
+
+    <div class="setup-field">
+      <div class="setup-label">Difficulty</div>
+      ${segControl('level', [{ value: 'auto', label: 'Auto' }, ...levels.map((_, i) => ({ value: i, label: String(i + 1) }))], d.level)}
+      <div class="setup-note">${levelNote}</div>
+      <div class="setup-chips">${levels[shown].map(x => `<span class="chip">${x}</span>`).join('')}</div>
+    </div>
+
+    ${extra}
+
+    <div class="setup-buttons">
+      <button class="btn-secondary" onclick="closePracticeSetup()">Cancel</button>
+      <button class="btn-primary" id="btn-setup-start">Start</button>
+    </div>`;
+}
+
+function handleSetupClick(e) {
+  if (e.target.id === 'setup-modal') { closePracticeSetup(); return; } // backdrop
+  if (e.target.id === 'btn-setup-start') { startFromSetup(); return; }
+
+  const btn = e.target.closest('.seg-btn');
+  if (!btn || !setupDraft) return;
+  const field = btn.closest('.seg').dataset.field;
+  const raw   = btn.dataset.value;
+  setupDraft[field] = (field === 'length' || field === 'level') && /^\d+$/.test(raw) ? parseInt(raw, 10) : raw;
+  renderPracticeSetup();
+}
+
+function startFromSetup() {
+  const { type, ...setup } = setupDraft;
+  state.settings.practiceSetup = state.settings.practiceSetup || {};
+  state.settings.practiceSetup[type] = setup;
+  saveState();
+  closePracticeSetup();
+  startCategoryPractice(type, setup);
 }
 
 /* ── Exercise Flow ── */
 function showNextExercise() {
+  haltExercise(); // never let the previous question's audio overlap
+
   // Endless mode: extend plan on-demand
-  if (state.settings.endlessMode && state.sessionIndex >= state.sessionPlan.length) {
-    state.sessionPlan.push({ type: randFrom(ALL_TYPES) });
+  if (state.sessionEndless && state.sessionIndex >= state.sessionPlan.length) {
+    state.sessionPlan.push({ type: randFrom(state.sessionTypes) });
   }
 
-  if (!state.settings.endlessMode && state.sessionIndex >= state.sessionPlan.length) {
+  if (!state.sessionEndless && state.sessionIndex >= state.sessionPlan.length) {
     showSessionComplete();
     return;
   }
 
   const planItem = state.sessionPlan[state.sessionIndex];
 
-  // Update progress bar (in endless mode show rolling 15-question windows)
-  const total = state.settings.endlessMode ? state.sessionLength : state.sessionPlan.length;
-  const pct   = state.settings.endlessMode
+  // Update progress bar (in endless mode show rolling windows)
+  const total = state.sessionEndless ? state.sessionLength : state.sessionPlan.length;
+  const pct   = state.sessionEndless
     ? ((state.sessionIndex % total) / total) * 100
     : (state.sessionIndex / total) * 100;
   document.getElementById('modal-progress-fill').style.width = pct + '%';
@@ -469,8 +642,8 @@ function showNextExercise() {
 
   renderExercise(state.exercise);
 
-  // Auto-play after 400ms
-  setTimeout(() => {
+  // Auto-play after 400ms (cancelled if the user quits first)
+  state.autoPlayTimer = setTimeout(() => {
     if (!state.answered) handlePlay();
   }, 400);
 }
@@ -499,23 +672,18 @@ function renderExercise(ex) {
 }
 
 /* ── Play / Replay ── */
-function handlePlay() {
-  if (!state.exercise) return;
+function playExercise(fn) {
+  if (!state.exercise || !isExerciseOpen()) return;
+  audio.stopAll(); // restart cleanly instead of layering replays
   const playBtn = document.getElementById('btn-play');
   playBtn.classList.add('playing');
-  state.exercise.play().then(() => {
+  fn().then(() => {
     setTimeout(() => playBtn.classList.remove('playing'), 2000);
   }).catch(() => playBtn.classList.remove('playing'));
 }
 
-function handleReplay() {
-  if (!state.exercise) return;
-  const playBtn = document.getElementById('btn-play');
-  playBtn.classList.add('playing');
-  state.exercise.replay().then(() => {
-    setTimeout(() => playBtn.classList.remove('playing'), 2000);
-  }).catch(() => playBtn.classList.remove('playing'));
-}
+function handlePlay()   { if (state.exercise) playExercise(state.exercise.play); }
+function handleReplay() { if (state.exercise) playExercise(state.exercise.replay); }
 
 /* ── Answer Handling ── */
 function handleAnswer(choiceIndex) {
@@ -598,7 +766,7 @@ function advanceExercise() {
 
 /* ── Session Complete ── */
 function showSessionComplete() {
-  clearTimeout(state.advanceTimer);
+  haltExercise();
   // Count answered questions (endless mode can stop mid-question)
   const total    = Object.values(state.sessionStats).reduce((s, x) => s + x.total, 0);
   const correct  = state.sessionCorrect;
@@ -723,8 +891,14 @@ function handleKeyDown(e) {
   // Ignore when typing in form fields
   if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
 
-  const modal = document.getElementById('exercise-modal');
-  if (modal.classList.contains('hidden')) return;
+  const setup = document.getElementById('setup-modal');
+  if (!setup.classList.contains('hidden')) {
+    if (e.key === 'Escape') closePracticeSetup();
+    if (e.key === 'Enter' && !e.target.closest('button')) { e.preventDefault(); startFromSetup(); }
+    return;
+  }
+
+  if (!isExerciseOpen()) return;
 
   // 1-4: select answer
   if (!state.answered && e.key >= '1' && e.key <= '4') {
@@ -938,6 +1112,17 @@ function initSettings() {
     });
   }
 
+  // Scale playback mode
+  const scaleSel = document.getElementById('scale-mode-select');
+  if (scaleSel) {
+    scaleSel.innerHTML = SCALE_PLAY_MODES.map(m => `<option value="${m.id}">${m.label}</option>`).join('');
+    scaleSel.value = state.settings.scaleMode;
+    scaleSel.addEventListener('change', () => {
+      state.settings.scaleMode = scaleSel.value;
+      saveState();
+    });
+  }
+
   // Fixed root toggle
   const fixedRootChk = document.getElementById('fixed-root-toggle');
   if (fixedRootChk) {
@@ -1015,6 +1200,9 @@ function initApp() {
 
   // Keyboard shortcuts
   document.addEventListener('keydown', handleKeyDown);
+
+  // Practice setup screen
+  document.getElementById('setup-modal').addEventListener('click', handleSetupClick);
 
   // Learn tab: click (or Enter/Space on a focused item) to hear an example
   const learnTab = document.getElementById('tab-learn');

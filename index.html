@@ -185,6 +185,13 @@
         </div>
         <div class="setting-row">
           <div class="setting-label-block">
+            <span class="setting-label">Scale Playback</span>
+            <span class="setting-sub">How scales are played in the daily workout</span>
+          </div>
+          <select id="scale-mode-select" class="setting-select"></select>
+        </div>
+        <div class="setting-row">
+          <div class="setting-label-block">
             <span class="setting-label">Fixed Root (Intervals)</span>
             <span class="setting-sub">Always start from C4</span>
           </div>
@@ -205,7 +212,7 @@
         </div>
         <div class="setting-row">
           <div class="setting-label-block">
-            <span class="setting-label">Endless Mode</span>
+            <span class="setting-label">Endless Daily Workout</span>
             <span class="setting-sub">Keep going until you stop</span>
           </div>
           <label class="toggle-switch">
@@ -358,6 +365,11 @@
 
   <script src="js/theory.js"></script>
   <script src="js/audio.js"></script>
+  <!-- Practice Setup Modal -->
+  <div id="setup-modal" class="modal setup-modal hidden" role="dialog" aria-modal="true" aria-label="Practice setup">
+    <div class="setup-card" id="setup-body"></div>
+  </div>
+
   <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
   <script src="js/adaptive.js"></script>

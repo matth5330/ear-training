@@ -5,14 +5,53 @@
 /* ─────────────────────────────────────────
    Helpers
    ───────────────────────────────────────── */
+/**
+ * Per-session options chosen on the practice setup screen.
+ * Falls back to undefined (→ global setting / adaptive) when not set.
+ */
+function practiceOpt(key) {
+  return (typeof state !== 'undefined' && state.practice) ? state.practice[key] : undefined;
+}
+
+/** Fixed level from the setup screen, or the adaptive level. */
+function pickLevel(type, levelCount) {
+  const lv = practiceOpt('level');
+  if (Number.isInteger(lv)) return Math.max(0, Math.min(levelCount - 1, lv));
+  return adaptive.getLevel(type, levelCount);
+}
+
 function getIntervalDirection() {
   try {
-    const d = (typeof state !== 'undefined' && state.settings)
-      ? state.settings.intervalDirection || 'ascending'
-      : 'ascending';
+    const d = practiceOpt('intervalDirection') || state.settings.intervalDirection || 'ascending';
     if (d === 'mixed') return randFrom(['ascending', 'descending', 'harmonic']);
     return d;
   } catch (e) { return 'ascending'; }
+}
+
+function getScaleMode() {
+  try {
+    const m = practiceOpt('scaleMode') || state.settings.scaleMode || 'ascending';
+    if (m === 'mixed') return randFrom(SCALE_PLAY_MODES.filter(x => x.id !== 'mixed')).id;
+    return m;
+  } catch (e) { return 'ascending'; }
+}
+
+/**
+ * Pair up notes randomly so every note appears at least once.
+ * With an odd count, the leftover note is paired with a random other note.
+ */
+function randomDiads(notes) {
+  const order = shuffle(notes);
+  const pairs = [];
+  for (let i = 0; i < order.length; i += 2) {
+    if (i + 1 < order.length) {
+      pairs.push([order[i], order[i + 1]]);
+    } else {
+      const partner = randFrom(notes.filter(n => n !== order[i]));
+      pairs.push([order[i], partner]);
+    }
+  }
+  return pairs.map(p => p.sort((a, b) => a - b));
 }
 
 function isFixedRoot() {
@@ -25,7 +64,7 @@ function isFixedRoot() {
    Interval Exercise
    ───────────────────────────────────────── */
 function generateIntervalExercise() {
-  const level    = adaptive.getLevel('interval', INTERVAL_LEVELS.length);
+  const level    = pickLevel('interval', INTERVAL_LEVELS.length);
   const pool     = INTERVAL_LEVELS[level].map(s => INTERVALS.find(iv => iv.semitones === s));
   const correct  = randFrom(pool);
   const rootMidi = isFixedRoot() ? 60 : randInt(48, 60);
@@ -78,7 +117,7 @@ function generateIntervalExercise() {
    Chord Exercise
    ───────────────────────────────────────── */
 function generateChordExercise() {
-  const level    = adaptive.getLevel('chord', CHORD_LEVELS.length);
+  const level    = pickLevel('chord', CHORD_LEVELS.length);
   const ids      = CHORD_LEVELS[level];
   const pool     = ids.map(id => CHORD_TYPES.find(c => c.id === id));
   const correct  = randFrom(pool);
@@ -115,30 +154,67 @@ function generateChordExercise() {
    Scale Exercise
    ───────────────────────────────────────── */
 function generateScaleExercise() {
-  const level    = adaptive.getLevel('scale', SCALE_LEVELS.length);
+  const level    = pickLevel('scale', SCALE_LEVELS.length);
   const ids      = SCALE_LEVELS[level];
   const pool     = ids.map(id => SCALE_TYPES.find(s => s.id === id));
   const correct  = randFrom(pool);
   const rootMidi = randInt(48, 56);
   const notes    = correct.intervals.map(s => rootMidi + s);
   const speed    = getSpeedMult();
+  const mode     = getScaleMode();
 
   const choices      = generateChoices(correct, pool, 4, x => x.id);
   const correctIndex = choices.findIndex(c => c.id === correct.id);
   const skillKey     = `scale_${correct.id}`;
 
+  // Unique pitches (drop the top octave, which duplicates the root)
+  const unique = notes.filter(n => n !== rootMidi + 12);
+
+  // Decide the random orderings once so replay sounds identical
+  const shuffledRest = shuffle(unique.filter(n => n !== rootMidi));
+  const diads        = randomDiads(unique);
+
+  const spacing = 0.22 * speed;
+  const dur     = 0.6  * speed;
+
   const playFn = async () => {
     await audio.resume();
     const t = audio.now() + 0.05;
-    audio.playScale(rootMidi, correct.intervals, t, true, speed);
+
+    switch (mode) {
+      case 'descending':
+        audio.playSequence([...notes].reverse(), t, spacing, dur);
+        break;
+      case 'updown':
+        audio.playSequence([...notes, ...notes.slice(0, -1).reverse()], t, spacing, dur);
+        break;
+      case 'random': {
+        // Tonic first (held a little longer) so the mode is identifiable
+        audio.playNote(rootMidi, t, 0.9 * speed, 0.5);
+        audio.playSequence(shuffledRest, t + 0.8 * speed, 0.34 * speed, dur);
+        break;
+      }
+      case 'diads': {
+        audio.playNote(rootMidi, t, 0.9 * speed, 0.5);
+        const gap = 0.85 * speed;
+        diads.forEach((pair, i) => {
+          audio.playChord(pair, t + 1.0 * speed + i * gap, 0.75 * speed, 0.38);
+        });
+        break;
+      }
+      default: // ascending
+        audio.playSequence(notes, t, spacing, dur);
+    }
     highlightKeys(notes);
   };
+
+  const modeLabel = SCALE_PLAY_MODES.find(m => m.id === mode).label;
 
   return {
     type: 'scale',
     skillKey,
     question: 'What scale or mode is this?',
-    keyLabel: `Root: ${midiToName(rootMidi)}`,
+    keyLabel: `Root: ${midiToName(rootMidi)} · ${modeLabel}`,
     play:  playFn,
     replay: playFn,
     choices: choices.map(c => ({ label: c.name, value: c.id })),
@@ -152,7 +228,7 @@ function generateScaleExercise() {
    Functional / Scale Degree Exercise
    ───────────────────────────────────────── */
 function generateFunctionalExercise() {
-  const level      = adaptive.getLevel('functional', FUNCTIONAL_LEVELS.length);
+  const level      = pickLevel('functional', FUNCTIONAL_LEVELS.length);
   const degreeNums = FUNCTIONAL_LEVELS[level];
   const pool       = degreeNums.map(n => SCALE_DEGREES.find(d => d.degree === n));
   const correct    = randFrom(pool);
@@ -198,7 +274,7 @@ function generateFunctionalExercise() {
    Perfect Pitch Exercise  (NEW)
    ───────────────────────────────────────── */
 function generatePerfectPitchExercise() {
-  const level       = adaptive.getLevel('pitch', PERFECT_PITCH_LEVELS.length);
+  const level       = pickLevel('pitch', PERFECT_PITCH_LEVELS.length);
   const notePool    = PERFECT_PITCH_LEVELS[level];
   const correctName = randFrom(notePool);
   const noteIndex   = NOTES_SHARP.indexOf(correctName);
@@ -235,9 +311,8 @@ function generatePerfectPitchExercise() {
    Chord Progression Exercise  (NEW)
    ───────────────────────────────────────── */
 function generateProgressionExercise() {
-  const level     = adaptive.getLevel('progression', 3);
-  const poolCount = level <= 1 ? 3 : level === 2 ? 4 : CHORD_PROGRESSIONS.length;
-  const pool      = CHORD_PROGRESSIONS.slice(0, poolCount);
+  const level     = pickLevel('progression', PROGRESSION_LEVELS.length);
+  const pool      = PROGRESSION_LEVELS[level].map(id => CHORD_PROGRESSIONS.find(p => p.id === id));
   const correct   = randFrom(pool);
   const rootMidi  = randInt(48, 57); // C3-A3 — keep in comfortable register
   const speed     = getSpeedMult();

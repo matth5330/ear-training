@@ -44,6 +44,9 @@ Runs in its own window from your taskbar/Start menu, fully offline after the fir
 
 **UI / UX**
 - 5-tab navigation (Home, Train, Progress, Learn, Settings)
+- Practice setup screen (Train tab): question count or endless, Auto or fixed difficulty level with a preview of what's included, interval direction, scale playback style
+- Scale playback modes: ascending, descending, up & down, random order, random diads, mixed
+- Audio stops instantly when quitting an exercise, switching tabs, or starting another example
 - Exercise modal with piano keyboard visualization
 - Keyboard shortcuts — `1`–`4` to answer, `Space`/`A` to replay, `Enter` to continue
 - Radar chart showing proficiency across all 6 types
