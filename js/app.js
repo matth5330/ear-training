@@ -52,6 +52,7 @@ function defaultState() {
       autoProceed:       false,        // advance immediately on correct answer
       endlessMode:       false,        // never-ending session (daily workout)
       scaleMode:         'ascending',  // see SCALE_PLAY_MODES
+      progressionMode:   'ionian',     // a MODES id, or 'mixed'
       practiceSetup:     {},           // last-used setup per exercise type
     },
   };
@@ -281,6 +282,7 @@ function renderLearnTab() {
         <td>${PLAY_ICON}<strong>${iv.name}</strong> (${iv.abbr})</td>
         <td>${iv.semitones}</td>
         <td>${iv.ref}</td>
+        <td>${iv.refDown}</td>
       </tr>`).join('');
   }
 
@@ -302,7 +304,11 @@ function renderLearnTab() {
 
   const progContainer = document.getElementById('prog-cards');
   if (progContainer) {
-    progContainer.innerHTML = CHORD_PROGRESSIONS.map(p => card('progression', p.id, p.name, p.description)).join('');
+    progContainer.innerHTML = MODES.map(m => `
+      <div class="learn-subhead"><strong>${m.name}</strong> <span class="muted-text">— ${m.character}</span></div>
+      <div class="learn-cards-grid">
+        ${PROGRESSION_LIBRARY.filter(p => p.mode === m.id).map(p => card('progression', p.id, p.name, p.desc)).join('')}
+      </div>`).join('');
   }
 }
 
@@ -318,11 +324,13 @@ function playLearnExample(kind, id) {
   switch (kind) {
     case 'interval': {
       const semis = parseInt(id, 10);
-      // Melodic (ascending), then harmonic
-      audio.playNote(root,         t,             0.9 * sp, 0.5);
-      audio.playNote(root + semis, t + 0.7 * sp,  0.9 * sp, 0.5);
-      audio.playChord([root, root + semis], t + 1.7 * sp, 1.2 * sp, 0.35);
-      return 3.0 * sp;
+      // Up, then down, then together
+      audio.playNote(root,         t,             0.8 * sp, 0.5);
+      audio.playNote(root + semis, t + 0.65 * sp, 0.8 * sp, 0.5);
+      audio.playNote(root + semis, t + 1.6 * sp,  0.8 * sp, 0.5);
+      audio.playNote(root,         t + 2.25 * sp, 0.8 * sp, 0.5);
+      audio.playChord([root, root + semis], t + 3.2 * sp, 1.2 * sp, 0.35);
+      return 4.5 * sp;
     }
     case 'chord': {
       const chord = CHORD_TYPES.find(c => c.id === id);
@@ -340,16 +348,12 @@ function playLearnExample(kind, id) {
       return audio.playScale(root, scale.intervals, t, true, sp) - t;
     }
     case 'progression': {
-      const prog = CHORD_PROGRESSIONS.find(p => p.id === id);
+      const prog = PROGRESSION_LIBRARY.find(p => p.id === id);
       if (!prog) return 0;
-      const gap = 0.9 * sp;
-      const bass = 48; // C3 — keeps the voicings in a comfortable register
-      prog.degrees.forEach((deg, i) => {
-        const quality = CHORD_TYPES.find(c => c.id === prog.qualities[i]);
-        const notes   = quality.intervals.map(iv => bass + deg + iv);
-        audio.playChord(notes, t + i * gap, 0.85 * sp, 0.28);
-      });
-      return prog.degrees.length * gap + 0.85 * sp;
+      const gap    = 0.9 * sp;
+      const chords = progressionVoicings(prog.mode, prog.degrees, prog.sevenths, 60); // in C
+      chords.forEach((notes, i) => audio.playChord(notes, t + i * gap, 0.85 * sp, 0.28));
+      return chords.length * gap + 0.85 * sp;
     }
   }
   return 0;
@@ -382,6 +386,9 @@ function renderSettingsTab() {
 
   const scaleSel = document.getElementById('scale-mode-select');
   if (scaleSel) scaleSel.value = state.settings.scaleMode;
+
+  const progSel = document.getElementById('progression-mode-select');
+  if (progSel) progSel.value = state.settings.progressionMode;
 
   const fixedRootChk = document.getElementById('fixed-root-toggle');
   if (fixedRootChk) fixedRootChk.checked = state.settings.fixedRoot;
@@ -423,6 +430,7 @@ function startCategoryPractice(type, setup = getPracticeSetup(type)) {
       level:             setup.level === 'auto' ? undefined : setup.level,
       intervalDirection: setup.intervalDirection,
       scaleMode:         setup.scaleMode,
+      progressionMode:   setup.progressionMode,
     },
   });
   lastLaunch = () => startCategoryPractice(type, setup);
@@ -484,14 +492,26 @@ function continueSession() {
    ══════════════════════════════════════════ */
 
 /** What each difficulty level contains, as display labels. */
-function levelsFor(type) {
+function levelsFor(type, opts = {}) {
   switch (type) {
     case 'interval':    return INTERVAL_LEVELS.map(l => l.map(s => INTERVALS.find(i => i.semitones === s).abbr));
     case 'chord':       return CHORD_LEVELS.map(l => l.map(id => CHORD_TYPES.find(c => c.id === id).abbr));
     case 'scale':       return SCALE_LEVELS.map(l => l.map(id => SCALE_TYPES.find(s => s.id === id).name));
     case 'functional':  return FUNCTIONAL_LEVELS.map(l => l.map(d => SCALE_DEGREES.find(x => x.degree === d).solfege));
     case 'pitch':       return PERFECT_PITCH_LEVELS;
-    case 'progression': return PROGRESSION_LEVELS.map(l => l.map(id => CHORD_PROGRESSIONS.find(p => p.id === id).name));
+    case 'progression': {
+      const mode  = opts.progressionMode || state.settings.progressionMode || 'ionian';
+      const mixed = mode === 'mixed';
+      const named = tier => mixed
+        ? MODES.map(m => `${m.name}: ${namedProgressions(m.id, tier).length}`)
+        : namedProgressions(mode, tier).map(p => p.name);
+      const per = mixed ? ' per mode' : '';
+      return [
+        named(1), named(2), named(3),
+        ['Any 4 chords starting on the tonic', `216 progressions${per}`],
+        ['Any 4 chords, any starting chord', `1,512 progressions${per}`],
+      ];
+    }
   }
   return [[]];
 }
@@ -500,6 +520,7 @@ function getPracticeSetup(type) {
   const base = { length: state.sessionLength, level: 'auto' };
   if (type === 'interval') base.intervalDirection = state.settings.intervalDirection;
   if (type === 'scale')    base.scaleMode         = state.settings.scaleMode;
+  if (type === 'progression') base.progressionMode = state.settings.progressionMode;
   const saved = (state.settings.practiceSetup || {})[type] || {};
   const setup = Object.assign(base, saved);
   // Guard against a level that no longer exists
@@ -529,7 +550,7 @@ function segControl(field, options, current) {
 
 function renderPracticeSetup() {
   const d      = setupDraft;
-  const levels = levelsFor(d.type);
+  const levels = levelsFor(d.type, d);
   const auto   = adaptive.getLevel(d.type, levels.length);
   const shown  = d.level === 'auto' ? auto : d.level;
 
@@ -555,6 +576,17 @@ function renderPracticeSetup() {
         <div class="setup-label">Playback</div>
         ${segControl('scaleMode', SCALE_PLAY_MODES.map(m => ({ value: m.id, label: m.label })), d.scaleMode)}
         <div class="setup-note">${modeDesc}</div>
+      </div>`;
+  }
+  if (d.type === 'progression') {
+    const info = d.progressionMode === 'mixed'
+      ? 'A different mode each question. The key and mode are shown.'
+      : MODES.find(m => m.id === d.progressionMode).character;
+    extra = `
+      <div class="setup-field">
+        <div class="setup-label">Mode</div>
+        ${segControl('progressionMode', [...MODES.map(m => ({ value: m.id, label: m.name })), { value: 'mixed', label: 'Mixed' }], d.progressionMode)}
+        <div class="setup-note">${info}</div>
       </div>`;
   }
 
@@ -1119,6 +1151,17 @@ function initSettings() {
     scaleSel.value = state.settings.scaleMode;
     scaleSel.addEventListener('change', () => {
       state.settings.scaleMode = scaleSel.value;
+      saveState();
+    });
+  }
+
+  // Progression mode
+  const progSel = document.getElementById('progression-mode-select');
+  if (progSel) {
+    progSel.innerHTML = [...MODES.map(m => `<option value="${m.id}">${m.name}</option>`), '<option value="mixed">Mixed</option>'].join('');
+    progSel.value = state.settings.progressionMode;
+    progSel.addEventListener('change', () => {
+      state.settings.progressionMode = progSel.value;
       saveState();
     });
   }

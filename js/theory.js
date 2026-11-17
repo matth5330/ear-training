@@ -40,20 +40,21 @@ function generateChoices(correct, pool, n, idFn = (x => x)) {
 }
 
 /* ── Intervals ── */
+// ref = song whose melody moves UP by this interval; refDown = moves DOWN
 const INTERVALS = [
-  { semitones: 0,  name: 'Perfect Unison',    abbr: 'P1',  ref: 'Same note' },
-  { semitones: 1,  name: 'Minor 2nd',          abbr: 'm2',  ref: 'Jaws theme' },
-  { semitones: 2,  name: 'Major 2nd',          abbr: 'M2',  ref: 'Happy Birthday' },
-  { semitones: 3,  name: 'Minor 3rd',          abbr: 'm3',  ref: 'Smoke on the Water' },
-  { semitones: 4,  name: 'Major 3rd',          abbr: 'M3',  ref: 'When the Saints Go Marching In' },
-  { semitones: 5,  name: 'Perfect 4th',        abbr: 'P4',  ref: 'Here Comes the Bride' },
-  { semitones: 6,  name: 'Tritone',            abbr: 'TT',  ref: 'The Simpsons' },
-  { semitones: 7,  name: 'Perfect 5th',        abbr: 'P5',  ref: 'Star Wars Theme' },
-  { semitones: 8,  name: 'Minor 6th',          abbr: 'm6',  ref: 'The Entertainer' },
-  { semitones: 9,  name: 'Major 6th',          abbr: 'M6',  ref: 'My Way' },
-  { semitones: 10, name: 'Minor 7th',          abbr: 'm7',  ref: 'Somewhere (West Side Story)' },
-  { semitones: 11, name: 'Major 7th',          abbr: 'M7',  ref: 'Take On Me' },
-  { semitones: 12, name: 'Perfect Octave',     abbr: 'P8',  ref: 'Somewhere Over the Rainbow' },
+  { semitones: 0,  name: 'Perfect Unison',    abbr: 'P1',  ref: 'Same note',                       refDown: 'Same note' },
+  { semitones: 1,  name: 'Minor 2nd',          abbr: 'm2',  ref: 'Jaws theme',                      refDown: 'Für Elise' },
+  { semitones: 2,  name: 'Major 2nd',          abbr: 'M2',  ref: 'Happy Birthday',                  refDown: 'Mary Had a Little Lamb' },
+  { semitones: 3,  name: 'Minor 3rd',          abbr: 'm3',  ref: 'Smoke on the Water',              refDown: 'Hey Jude' },
+  { semitones: 4,  name: 'Major 3rd',          abbr: 'M3',  ref: 'When the Saints Go Marching In',  refDown: 'Beethoven\'s 5th Symphony' },
+  { semitones: 5,  name: 'Perfect 4th',        abbr: 'P4',  ref: 'Here Comes the Bride',            refDown: 'Eine kleine Nachtmusik' },
+  { semitones: 6,  name: 'Tritone',            abbr: 'TT',  ref: 'The Simpsons',                    refDown: 'Black Sabbath (riff)' },
+  { semitones: 7,  name: 'Perfect 5th',        abbr: 'P5',  ref: 'Star Wars Theme',                 refDown: 'The Flintstones' },
+  { semitones: 8,  name: 'Minor 6th',          abbr: 'm6',  ref: 'The Entertainer',                 refDown: 'Love Story (Where Do I Begin)' },
+  { semitones: 9,  name: 'Major 6th',          abbr: 'M6',  ref: 'My Way',                          refDown: 'Nobody Knows the Trouble I\'ve Seen' },
+  { semitones: 10, name: 'Minor 7th',          abbr: 'm7',  ref: 'Somewhere (West Side Story)',     refDown: 'Watermelon Man' },
+  { semitones: 11, name: 'Major 7th',          abbr: 'M7',  ref: 'Take On Me',                      refDown: 'I Love You (Cole Porter)' },
+  { semitones: 12, name: 'Perfect Octave',     abbr: 'P8',  ref: 'Somewhere Over the Rainbow',      refDown: 'Willow Weep for Me' },
 ];
 
 /* ── Chord Types ── */
@@ -133,22 +134,188 @@ const FUNCTIONAL_LEVELS = [
   [1, 2, 3, 4, 5, 6, 7],
 ];
 
-/* ── Chord Progressions ── */
-const CHORD_PROGRESSIONS = [
-  { id: 'I_IV_V',    name: 'I – IV – V',      degrees: [0,5,7],   qualities: ['maj','maj','maj'],         description: 'Classic blues/rock' },
-  { id: 'I_V_vi_IV', name: 'I – V – vi – IV', degrees: [0,7,9,5], qualities: ['maj','maj','min','maj'],    description: 'Axis / pop staple' },
-  { id: 'ii_V_I',    name: 'ii – V – I',      degrees: [2,7,0],   qualities: ['min7','dom7','maj7'],       description: 'Jazz cadence' },
-  { id: 'I_vi_IV_V', name: 'I – vi – IV – V', degrees: [0,9,5,7], qualities: ['maj','min','maj','maj'],    description: '50s doo-wop' },
-  { id: 'vi_IV_I_V', name: 'vi – IV – I – V', degrees: [9,5,0,7], qualities: ['min','maj','maj','maj'],    description: 'Minor-start pop' },
-  { id: 'I_V_IV',    name: 'I – V – IV',      degrees: [0,7,5],   qualities: ['maj','maj','maj'],         description: 'Country / reverse blues' },
+/* ══════════════════════════════════════════
+   Modes & diatonic harmony
+   ══════════════════════════════════════════ */
+const MODES = [
+  { id: 'ionian',     name: 'Major',      intervals: [0,2,4,5,7,9,11], character: 'Bright and resolved' },
+  { id: 'aeolian',    name: 'Minor',      intervals: [0,2,3,5,7,8,10], character: 'Dark, natural minor' },
+  { id: 'dorian',     name: 'Dorian',     intervals: [0,2,3,5,7,9,10], character: 'Minor with a bright major IV' },
+  { id: 'phrygian',   name: 'Phrygian',   intervals: [0,1,3,5,7,8,10], character: 'Minor with a tense bII' },
+  { id: 'lydian',     name: 'Lydian',     intervals: [0,2,4,6,7,9,11], character: 'Major with a floating II' },
+  { id: 'mixolydian', name: 'Mixolydian', intervals: [0,2,4,5,7,9,10], character: 'Major with a rock bVII' },
+  { id: 'locrian',    name: 'Locrian',    intervals: [0,1,3,5,6,8,10], character: 'Unstable diminished tonic' },
 ];
+const MAJOR_STEPS = [0,2,4,5,7,9,11];
+const ROMAN       = ['I','II','III','IV','V','VI','VII'];
 
-/* ── Progression Levels (ids, in difficulty order) ── */
-const PROGRESSION_LEVELS = [
-  ['I_IV_V', 'I_V_vi_IV', 'ii_V_I'],
-  ['I_IV_V', 'I_V_vi_IV', 'ii_V_I', 'I_vi_IV_V'],
-  CHORD_PROGRESSIONS.map(p => p.id),
-];
+/**
+ * Build the diatonic chord on a scale degree (0–6) of a mode.
+ * Returns { root (semitones above tonic), intervals (from chord root), quality, label }.
+ * Labels are roman numerals relative to the major scale, so Mixolydian's
+ * 7th-degree chord reads "bVII", Lydian's 2nd reads "II", etc.
+ */
+function diatonicChord(modeId, degree, seventh = false) {
+  const S    = MODES.find(m => m.id === modeId).intervals;
+  const at   = k => S[(degree + k) % 7] + 12 * Math.floor((degree + k) / 7);
+  const root = S[degree];
+  const ints = [0, 2, 4].concat(seventh ? [6] : []).map(k => at(k) - root);
+  const [, third, fifth, sev] = ints;
+
+  let quality = 'maj';
+  if (third === 3 && fifth === 7) quality = 'min';
+  else if (third === 3 && fifth === 6) quality = 'dim';
+  else if (third === 4 && fifth === 8) quality = 'aug';
+
+  const diff   = root - MAJOR_STEPS[degree];
+  const prefix = diff < 0 ? 'b' : diff > 0 ? '#' : '';
+  const numeral = (quality === 'maj' || quality === 'aug') ? ROMAN[degree] : ROMAN[degree].toLowerCase();
+
+  let suffix = quality === 'dim' ? '°' : quality === 'aug' ? '+' : '';
+  if (seventh) {
+    if (quality === 'maj') suffix = sev === 11 ? 'maj7' : '7';
+    if (quality === 'min') suffix = sev === 11 ? '(maj7)' : '7';
+    if (quality === 'dim') suffix = sev === 10 ? 'ø7' : '°7';
+  }
+  return { root, intervals: ints, quality, label: prefix + numeral + suffix };
+}
+
+function progressionName(modeId, degrees, sevenths = false) {
+  return degrees.map(d => diatonicChord(modeId, d, sevenths).label).join(' – ');
+}
+
+/* ── Named progression library ──
+   degrees are 0-indexed scale degrees (0 = tonic).
+   tier 1 = most common, 3 = less common. */
+const PROGRESSION_SOURCE = {
+  ionian: [
+    // Original ids kept so existing practice stats carry over
+    { tier: 1, id: 'I_IV_V',    degrees: [0,3,4],   desc: 'Classic blues / rock' },
+    { tier: 1, id: 'I_V_vi_IV', degrees: [0,4,5,3], desc: 'Axis — the pop staple' },
+    { tier: 1, id: 'ii_V_I',    degrees: [1,4,0],   desc: 'Jazz cadence', sevenths: true },
+    { tier: 2, id: 'I_vi_IV_V', degrees: [0,5,3,4], desc: '50s doo-wop' },
+    { tier: 2, id: 'vi_IV_I_V', degrees: [5,3,0,4], desc: 'Axis starting on vi' },
+    { tier: 2, id: 'I_V_IV',    degrees: [0,4,3],   desc: 'Country / reverse blues' },
+    { tier: 3, degrees: [0,3,5,4], desc: 'Pop variant' },
+    { tier: 3, degrees: [0,5,1,4], desc: 'Turnaround' },
+    { tier: 3, degrees: [0,2,3,4], desc: 'Stepwise climb' },
+    { tier: 3, degrees: [3,4,2,5], desc: 'Royal Road (J-pop)' },
+    { tier: 3, degrees: [0,4,5,2], desc: 'Pachelbel\'s Canon (opening)' },
+    { tier: 3, degrees: [0,3,1,4], desc: 'Gospel / pop turnaround' },
+    { tier: 3, degrees: [5,1,4,0], desc: 'Circle of fifths' },
+    { tier: 3, degrees: [3,0,4,5], desc: 'Axis starting on IV' },
+  ],
+  aeolian: [
+    { tier: 1, degrees: [0,5,2,6], desc: 'Minor axis' },
+    { tier: 1, degrees: [0,3,4],   desc: 'Natural minor cadence' },
+    { tier: 1, degrees: [0,6,5],   desc: 'Descending rock line' },
+    { tier: 2, degrees: [0,5,6,0], desc: 'Epic / cinematic' },
+    { tier: 2, degrees: [0,3,6,2], desc: 'Minor circle' },
+    { tier: 2, degrees: [0,6,5,6], desc: 'Aeolian vamp' },
+    { tier: 3, degrees: [0,2,6,3], desc: 'Minor rock' },
+    { tier: 3, degrees: [0,4,5,6], desc: 'Rising minor' },
+    { tier: 3, degrees: [1,4,0],   desc: 'Natural-minor ii–v–i' },
+    { tier: 3, degrees: [0,5,3,4], desc: 'Minor ballad' },
+  ],
+  dorian: [
+    { tier: 1, degrees: [0,3],     desc: 'The Dorian vamp' },
+    { tier: 1, degrees: [0,6,3],   desc: 'Dorian rock' },
+    { tier: 1, degrees: [0,3,6,0], desc: 'Dorian cadence' },
+    { tier: 2, degrees: [0,1,2,3], desc: 'Stepwise Dorian climb' },
+    { tier: 2, degrees: [0,2,3],   desc: 'Funk lift' },
+    { tier: 2, degrees: [0,4,3],   desc: 'Dorian blues' },
+    { tier: 3, degrees: [0,6,2,3], desc: 'Modal rock loop' },
+    { tier: 3, degrees: [0,3,4,0], desc: 'Dorian with minor v' },
+  ],
+  phrygian: [
+    { tier: 1, degrees: [0,1],     desc: 'Phrygian vamp (flamenco / metal)' },
+    { tier: 1, degrees: [0,1,2,1], desc: 'Phrygian climb' },
+    { tier: 1, degrees: [0,1,0,6], desc: 'Phrygian with bvii' },
+    { tier: 2, degrees: [0,6,5,1], desc: 'Descending Phrygian' },
+    { tier: 2, degrees: [0,3,1,0], desc: 'Phrygian cadence' },
+    { tier: 2, degrees: [0,2,1],   desc: 'bIII to bII' },
+    { tier: 3, degrees: [0,5,1,0], desc: 'Dark cinematic' },
+    { tier: 3, degrees: [0,1,3],   desc: 'bII to iv' },
+  ],
+  lydian: [
+    { tier: 1, degrees: [0,1],     desc: 'Lydian shimmer' },
+    { tier: 1, degrees: [0,1,0,6], desc: 'Lydian vamp' },
+    { tier: 1, degrees: [0,1,4],   desc: 'Lydian lift' },
+    { tier: 2, degrees: [0,1,2],   desc: 'Stepwise Lydian' },
+    { tier: 2, degrees: [0,6,1,0], desc: 'Film-score loop' },
+    { tier: 2, degrees: [0,4,1,0], desc: 'Bright return' },
+    { tier: 3, degrees: [0,5,1,0], desc: 'Dreamy turnaround' },
+    { tier: 3, degrees: [0,2,1,0], desc: 'iii to II' },
+  ],
+  mixolydian: [
+    { tier: 1, degrees: [0,6,3,0], desc: 'Classic rock cadence' },
+    { tier: 1, degrees: [0,6],     desc: 'Mixolydian vamp' },
+    { tier: 1, degrees: [6,3,0],   desc: 'Double plagal cadence' },
+    { tier: 2, degrees: [0,4,3,0], desc: 'Minor v to IV' },
+    { tier: 2, degrees: [0,3,6],   desc: 'Rising to bVII' },
+    { tier: 2, degrees: [0,6,4],   desc: 'bVII to v' },
+    { tier: 3, degrees: [0,1,6,0], desc: 'ii to bVII' },
+    { tier: 3, degrees: [0,4,6,3], desc: 'Modal rock loop' },
+    { tier: 3, degrees: [0,5,6,0], desc: 'vi to bVII' },
+  ],
+  locrian: [
+    { tier: 1, degrees: [0,1],     desc: 'Locrian vamp' },
+    { tier: 1, degrees: [0,6],     desc: 'Diminished to bvii' },
+    { tier: 1, degrees: [0,1,6,0], desc: 'Locrian loop' },
+    { tier: 2, degrees: [0,4,1,0], desc: 'bV to bII' },
+    { tier: 2, degrees: [0,2,1],   desc: 'biii to bII' },
+    { tier: 3, degrees: [0,5,1,0], desc: 'bVI to bII' },
+    { tier: 3, degrees: [0,3,1],   desc: 'iv to bII' },
+  ],
+};
+
+const PROGRESSION_LIBRARY = Object.entries(PROGRESSION_SOURCE).flatMap(([mode, list]) =>
+  list.map(p => ({
+    id:       p.id || `${mode}:${p.degrees.join('')}${p.sevenths ? '7' : ''}`,
+    mode,
+    tier:     p.tier,
+    degrees:  p.degrees,
+    sevenths: !!p.sevenths,
+    name:     progressionName(mode, p.degrees, p.sevenths),
+    desc:     p.desc,
+  }))
+);
+
+/* ── Progression difficulty levels ──
+   1–3: named progressions up to that tier
+   4:   any 4-chord diatonic progression starting on the tonic
+   5:   any 4-chord diatonic progression */
+const PROGRESSION_LEVEL_COUNT = 5;
+
+function namedProgressions(mode, maxTier) {
+  return PROGRESSION_LIBRARY.filter(p => p.mode === mode && p.tier <= maxTier);
+}
+
+/** Random 4-chord progression with no chord repeated back-to-back. */
+function randomProgressionDegrees(startOnTonic) {
+  const d = [startOnTonic ? 0 : randInt(0, 6)];
+  while (d.length < 4) {
+    let n;
+    do { n = randInt(0, 6); } while (n === d[d.length - 1]);
+    d.push(n);
+  }
+  return d;
+}
+
+/**
+ * A near-miss of a progression: change 1–2 chords so the distractor
+ * sounds similar. Keeps the tonic start (if required) and avoids
+ * back-to-back repeats.
+ */
+function mutateProgression(degrees, startOnTonic) {
+  const out       = [...degrees];
+  const positions = shuffle(startOnTonic ? [1, 2, 3] : [0, 1, 2, 3]).slice(0, randFrom([1, 1, 2]));
+  positions.forEach(p => {
+    const options = [0,1,2,3,4,5,6].filter(n => n !== degrees[p] && n !== out[p - 1] && n !== out[p + 1]);
+    out[p] = randFrom(options);
+  });
+  return out;
+}
 
 /* ── Scale playback modes ── */
 const SCALE_PLAY_MODES = [

@@ -29,7 +29,11 @@ Runs in its own window from your taskbar/Start menu, fully offline after the fir
 - Scale / mode recognition (13 scales)
 - Functional ear training — scale degrees with I-IV-V-I cadence context
 - Perfect pitch training (4 progressive levels)
-- Chord progression identification (6 common patterns)
+- Chord progression identification in all 7 modes (Major, Minor, Dorian, Phrygian, Lydian, Mixolydian, Locrian) or mixed
+  - Levels 1–3: a library of 64 named progressions, common → less common
+  - Level 4: any 4-chord diatonic progression starting on the tonic (216 per mode)
+  - Level 5: any 4-chord diatonic progression (1,512 per mode)
+  - Tonic chord plays first to establish the key
 
 **Audio**
 - Web Audio API synthesis with piano-like timbre
@@ -57,7 +61,7 @@ Runs in its own window from your taskbar/Start menu, fully offline after the fir
 - PWA — installable, fully offline
 
 **Learn tab**
-- Interval reference table with mnemonics
+- Interval reference table with separate ascending and descending reference songs
 - Chord quality cards with character descriptions
 - Scale / mode cards
 - Chord progression cards

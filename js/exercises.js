@@ -95,6 +95,9 @@ function generateIntervalExercise() {
   };
 
   const dirLabel = dir.charAt(0).toUpperCase() + dir.slice(1);
+  const refText  = dir === 'ascending'  ? `Reference (up): "${correct.ref}"`
+                 : dir === 'descending' ? `Reference (down): "${correct.refDown}"`
+                 : `Up: "${correct.ref}" · Down: "${correct.refDown}"`;
   const questionText = dir === 'harmonic'
     ? 'What harmonic interval is this?'
     : `What interval is this? (${dir})`;
@@ -109,7 +112,7 @@ function generateIntervalExercise() {
     choices: choices.map(c => ({ label: c.name, value: c.semitones })),
     correctIndex,
     notes: [rootMidi, upperMidi],
-    explain: `${correct.name} (${correct.abbr}) — ${correct.semitones} semitone${correct.semitones !== 1 ? 's' : ''}. Reference: "${correct.ref}"`,
+    explain: `${correct.name} (${correct.abbr}) — ${correct.semitones} semitone${correct.semitones !== 1 ? 's' : ''}. ${refText}`,
   };
 }
 
@@ -310,24 +313,66 @@ function generatePerfectPitchExercise() {
 /* ─────────────────────────────────────────
    Chord Progression Exercise  (NEW)
    ───────────────────────────────────────── */
-function generateProgressionExercise() {
-  const level     = pickLevel('progression', PROGRESSION_LEVELS.length);
-  const pool      = PROGRESSION_LEVELS[level].map(id => CHORD_PROGRESSIONS.find(p => p.id === id));
-  const correct   = randFrom(pool);
-  const rootMidi  = randInt(48, 57); // C3-A3 — keep in comfortable register
-  const speed     = getSpeedMult();
+function getProgressionMode() {
+  try {
+    const m = practiceOpt('progressionMode') || state.settings.progressionMode || 'ionian';
+    return m === 'mixed' ? randFrom(MODES).id : m;
+  } catch (e) { return 'ionian'; }
+}
 
-  // Build actual MIDI notes for each chord
-  const chordNotes = correct.degrees.map((deg, i) => {
-    const chordRoot = rootMidi + deg;
-    const quality   = correct.qualities[i];
-    const ct = CHORD_TYPES.find(c => c.id === quality) || CHORD_TYPES[0];
-    return ct.intervals.map(s => chordRoot + s);
+/**
+ * MIDI notes for each chord of a progression. Chords whose root sits high
+ * in the scale drop an octave so the progression stays in one register.
+ */
+function progressionVoicings(mode, degrees, sevenths, tonicMidi) {
+  return degrees.map(deg => {
+    const ch   = diatonicChord(mode, deg, sevenths);
+    const base = tonicMidi + ch.root - (ch.root > 6 ? 12 : 0);
+    return ch.intervals.map(i => base + i);
   });
+}
 
-  const choices      = generateChoices(correct, pool, Math.min(4, pool.length), x => x.id);
+/**
+ * Pick the correct answer and distractors for a level.
+ * Levels 0–2 use the named library; 3–4 generate any 4-chord progression,
+ * with distractors that differ from the answer by one or two chords.
+ */
+function buildProgressionQuestion(level, mode) {
+  if (level <= 2) {
+    const pool    = namedProgressions(mode, level + 1);
+    const correct = randFrom(pool);
+    return { correct, choices: generateChoices(correct, pool, Math.min(4, pool.length), x => x.id) };
+  }
+
+  const startOnTonic = level === 3;
+  const make = degrees => ({
+    id: `${mode}:${degrees.join('')}`, mode, degrees, sevenths: false,
+    name: progressionName(mode, degrees), desc: null,
+  });
+  const correct = make(randomProgressionDegrees(startOnTonic));
+  const seen    = new Set([correct.id]);
+  const others  = [];
+  for (let tries = 0; others.length < 3 && tries < 100; tries++) {
+    const p = make(mutateProgression(correct.degrees, startOnTonic));
+    if (!seen.has(p.id)) { seen.add(p.id); others.push(p); }
+  }
+  return { correct, choices: shuffle([correct, ...others]) };
+}
+
+function generateProgressionExercise() {
+  const level    = pickLevel('progression', PROGRESSION_LEVEL_COUNT);
+  const mode     = getProgressionMode();
+  const modeInfo = MODES.find(m => m.id === mode);
+  const { correct, choices } = buildProgressionQuestion(level, mode);
+
+  const tonicMidi = randInt(50, 57); // D3–A3: keeps every chord in a comfortable register
+  const speed     = getSpeedMult();
+  const chords    = progressionVoicings(mode, correct.degrees, correct.sevenths, tonicMidi);
+  const tonic     = progressionVoicings(mode, [0], false, tonicMidi)[0];
+
   const correctIndex = choices.findIndex(c => c.id === correct.id);
-  const skillKey     = `progression_${correct.id}`;
+  // Named progressions track individually; generated ones track per mode
+  const skillKey = correct.desc ? `progression_${correct.id}` : `progression_any_${mode}`;
 
   const chordDur = 0.75 * speed;
   const chordGap = 0.95 * speed;
@@ -335,24 +380,28 @@ function generateProgressionExercise() {
   const playFn = async () => {
     await audio.resume();
     const t = audio.now() + 0.05;
-    chordNotes.forEach((chord, i) => {
-      audio.playChord(chord, t + i * chordGap, chordDur, 0.32);
-    });
-    // Highlight the tonic notes only
-    highlightKeys([rootMidi, rootMidi + 4, rootMidi + 7]);
+    // Tonic chord first to set the key, then a pause, then the progression
+    audio.playChord(tonic, t, 0.7 * speed, 0.24);
+    const start = t + 1.4 * speed;
+    chords.forEach((chord, i) => audio.playChord(chord, start + i * chordGap, chordDur, 0.32));
+    highlightKeys(tonic);
   };
+
+  const keyName = midiToName(tonicMidi, true).replace(/\d+$/, '');
 
   return {
     type: 'progression',
     skillKey,
     question: 'Which chord progression is this?',
-    keyLabel: `Root: ${midiToName(rootMidi)} major`,
+    keyLabel: `Key: ${keyName} ${modeInfo.name} · tonic chord first`,
     play:  playFn,
     replay: playFn,
     choices: choices.map(p => ({ label: p.name, value: p.id })),
     correctIndex,
-    notes: [rootMidi, rootMidi + 4, rootMidi + 7],
-    explain: `${correct.name}: ${correct.description}`,
+    notes: tonic,
+    explain: correct.desc
+      ? `${correct.name} — ${correct.desc} (${modeInfo.name})`
+      : `${correct.name} in ${keyName} ${modeInfo.name}`,
   };
 }
 

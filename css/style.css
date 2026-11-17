@@ -663,3 +663,7 @@ kbd {
 }
 .setup-buttons { display: flex; gap: 10px; }
 .setup-buttons .btn-primary { flex: 1; }
+
+/* ── Learn: progression mode groups ── */
+.learn-subhead { font-size: 14px; margin: 14px 0 8px; }
+.learn-subhead:first-child { margin-top: 0; }
