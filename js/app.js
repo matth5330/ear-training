@@ -702,8 +702,10 @@ function showNextExercise() {
     : (state.sessionIndex / total) * 100;
   document.getElementById('modal-progress-fill').style.width = pct + '%';
 
-  state.answered  = false;
-  state.startTime = Date.now();
+  state.answered    = false;
+  state.firstResult = null; // first guess decides accuracy; retries are free
+  state.startTime   = Date.now();
+  clearTimeout(state.multiClearTimer);
 
   try {
     state.exercise = generateExercise(planItem.type);
@@ -736,13 +738,11 @@ function renderExercise(ex) {
   const isMulti = ex.kind === 'multi';
   grid.classList.toggle('multi', isMulti);
   document.querySelector('.keyboard-hint').innerHTML = isMulti
-    ? (ex.slash ? 'Pick a numeral (and optionally a target after the slash) in each row, then <kbd>Enter</kbd> to check &nbsp;·&nbsp; <kbd>Space</kbd> to replay'
-                : 'Pick a chord in each row, then <kbd>Enter</kbd> to check &nbsp;·&nbsp; <kbd>Space</kbd> to replay')
+    ? '<kbd>←</kbd><kbd>→</kbd> move between chords &nbsp;·&nbsp; <kbd>Backspace</kbd> clear &nbsp;·&nbsp; <kbd>Enter</kbd> check &nbsp;·&nbsp; <kbd>Space</kbd> replay'
     : 'Press <kbd>1</kbd>–<kbd>4</kbd> to answer &nbsp;·&nbsp; <kbd>Space</kbd> / <kbd>A</kbd> to replay &nbsp;·&nbsp; <kbd>Enter</kbd> to continue';
 
   if (isMulti) {
-    state.multiSelection = ex.slots.map(() => ({ n: null, t: null }));
-    renderMultiGrid(ex);
+    initMulti(ex);
   } else {
     // Build choices with keyboard shortcut badges
     grid.innerHTML = ex.choices.map((c, i) => `
@@ -757,13 +757,24 @@ function renderExercise(ex) {
   document.querySelectorAll('.piano-key.active').forEach(k => k.classList.remove('active'));
 }
 
-/* ── Multi-part answers (one row per chord) ── */
-/** Split numeral options into lines: diatonic / borrowed / colour / sus. */
-function groupOptions(options) {
-  const order = ['diatonic', 'borrowed', 'chromatic', 'sus'];
-  return order
-    .map(g => options.filter(o => PROG_CHORD_BY_ID[o.value].group === g))
-    .filter(list => list.length);
+/* ── Progression answers: chord strip + one shared keypad ──
+   Guess until right. Only the FIRST check of each chord counts toward
+   accuracy, skill ratings and XP; later attempts are free. */
+
+const KEYPAD_GROUPS = [
+  { id: 'diatonic',  label: 'Diatonic' },
+  { id: 'borrowed',  label: 'Borrowed' },
+  { id: 'chromatic', label: 'Colour' },
+  { id: 'sus',       label: 'Sus' },
+];
+
+function initMulti(ex) {
+  state.multi = {
+    slots:  ex.slots.map(() => ({ n: null, t: null, locked: false, first: null, wrong: false, given: false })),
+    active: 0,
+    missed: false, // any wrong check yet? (shows "Show answer")
+  };
+  renderMultiGrid(ex);
 }
 
 function answerLabel(sel) {
@@ -772,107 +783,194 @@ function answerLabel(sel) {
 }
 
 function renderMultiGrid(ex) {
-  const sel = state.multiSelection;
-  const btn = (r, part, o, active) => `
-    <button class="multi-btn ${active ? 'selected' : ''} ${o.value ? `grp-${PROG_CHORD_BY_ID[o.value].group}` : 'grp-none'}"
-      data-row="${r}" data-part="${part}" data-value="${o.value}"
-      onclick="selectMulti(${r}, '${part}', '${o.value}')">${o.label}</button>`;
+  const m      = state.multi;
+  const done   = state.answered;
+  const active = done ? null : m.slots[m.active]; // nothing to highlight once finished
 
-  const rows = ex.slots.map((slot, r) => `
-    <div class="multi-row" data-row="${r}">
-      <div class="multi-row-label">${slot.label}</div>
-      <div class="multi-answer">
-        <div class="multi-numerals">${groupOptions(ex.options).map(group => `
-          <div class="multi-options">${group.map(o => btn(r, 'n', o, sel[r].n === o.value)).join('')}</div>`).join('')}
-        </div>
-        ${ex.slash ? `
-          <div class="multi-slash">
-            <span class="slash-mark" aria-hidden="true">/</span>
-            <div class="multi-options">
-              ${[{ value: '', label: '—' }, ...ex.targets].map(o => btn(r, 't', o, (sel[r].t || '') === o.value)).join('')}
-            </div>
-          </div>` : ''}
-        <div class="multi-note" id="multi-note-${r}"></div>
+  // Chord strip: I – [slot] – [slot] …
+  const slotHtml = m.slots.map((s, r) => {
+    const usual   = PROG_CHORD_BY_ID[ex.slots[r].correct].label;
+    const text    = s.n ? answerLabel(s) : '?';
+    const caption = s.locked && s.n && !s.given && answerLabel(s) !== usual ? `usually ${usual}` : `Chord ${r + 2}`;
+    const cls = [
+      'prog-slot',
+      s.locked ? (s.given ? 'given' : 'locked') : '',
+      s.wrong ? 'wrong' : '',
+      !done && !s.locked && r === m.active ? 'active' : '',
+      s.n ? 'filled' : '',
+    ].join(' ');
+    return `
+      <div class="prog-slot-wrap">
+        <button class="${cls}" onclick="setActiveSlot(${r})" ${s.locked || done ? 'disabled' : ''}
+          aria-label="Chord ${r + 2}: ${s.n ? text : 'empty'}">${text}</button>
+        <div class="prog-slot-caption">${caption}</div>
+      </div>`;
+  }).join('<span class="prog-dash">–</span>');
+
+  // One keypad, filling whichever slot is active
+  const keypadDisabled = done || !active || active.locked;
+  const key = (part, value, label, selected) => `
+    <button class="key ${selected ? 'selected' : ''} ${value ? `grp-${PROG_CHORD_BY_ID[value].group}` : 'key-none'}"
+      data-part="${part}" data-value="${value}" onclick="pressKey('${part}', '${value}')"
+      ${keypadDisabled ? 'disabled' : ''}>${label}</button>`;
+
+  const groups = KEYPAD_GROUPS.map(g => {
+    const opts = ex.options.filter(o => PROG_CHORD_BY_ID[o.value].group === g.id);
+    if (!opts.length) return '';
+    return `
+      <div class="keypad-group">
+        <div class="keypad-label">${g.label}</div>
+        <div class="keypad-keys keys-${g.id}">${opts.map(o => key('n', o.value, o.label, active && active.n === o.value)).join('')}</div>
+      </div>`;
+  }).join('');
+
+  const slashRow = ex.slash ? `
+    <div class="keypad-group">
+      <div class="keypad-label">Slash</div>
+      <div class="keypad-keys keypad-slash">
+        ${key('t', '', 'none', active && active.n && !active.t)}
+        ${ex.targets.map(o => key('t', o.value, `/${o.label}`, active && active.t === o.value)).join('')}
       </div>
-    </div>`).join('');
+    </div>` : '';
 
-  const missing = sel.filter(s => s.n === null).length;
+  const missing = m.slots.filter(s => !s.locked && !s.n).length;
+  const mainBtn = done
+    ? `<button class="btn-primary multi-check" id="btn-multi-check" onclick="nextFromMulti()">Next</button>`
+    : `<button class="btn-primary multi-check" id="btn-multi-check" onclick="checkMulti()" ${missing ? 'disabled' : ''}>
+         ${missing ? `Fill ${missing} more` : 'Check'}</button>`;
+  const giveUp  = !done && m.missed
+    ? `<button class="btn-ghost multi-reveal" onclick="revealMulti()">Show answer</button>` : '';
+
   document.getElementById('choices-grid').innerHTML = `
-    <div class="multi-row given">
-      <div class="multi-row-label">Chord 1</div>
-      <div class="multi-given">Always <strong>${ex.givenFirst}</strong>, the tonic chord.</div>
+    <div class="prog-strip">
+      <div class="prog-slot-wrap">
+        <div class="prog-slot tonic">I</div>
+        <div class="prog-slot-caption">Chord 1</div>
+      </div>
+      <span class="prog-dash">–</span>
+      ${slotHtml}
     </div>
-    ${rows}
-    <button class="btn-primary multi-check" id="btn-multi-check" onclick="submitMulti()" ${missing ? 'disabled' : ''}>
-      ${missing ? `Pick ${missing} more` : 'Check'}
-    </button>`;
+    <div class="keypad ${keypadDisabled ? 'is-disabled' : ''}">${groups}${slashRow}</div>
+    <div class="multi-actions">${giveUp}${mainBtn}</div>`;
 }
 
-function selectMulti(row, part, value) {
-  if (state.answered || !state.exercise) return;
-  state.multiSelection[row][part] = value || null;
+function setActiveSlot(r) {
+  const m = state.multi;
+  if (state.answered || !m || !m.slots[r] || m.slots[r].locked) return;
+  m.active = r;
   renderMultiGrid(state.exercise);
 }
 
-function submitMulti() {
-  const ex = state.exercise;
+/** Next unlocked slot after `from` (wrapping), preferring empty ones. */
+function nextOpenSlot(from) {
+  const s = state.multi.slots, n = s.length;
+  for (let k = 1; k <= n; k++) { const r = (from + k) % n; if (!s[r].locked && !s[r].n) return r; }
+  for (let k = 1; k <= n; k++) { const r = (from + k) % n; if (!s[r].locked) return r; }
+  return from;
+}
+
+function pressKey(part, value) {
+  const ex = state.exercise, m = state.multi;
+  if (state.answered || !m) return;
+  const slot = m.slots[m.active];
+  if (!slot || slot.locked) return;
+
+  if (part === 'n') {
+    slot.n = value;
+    // Without slash chords, a numeral completes the chord: move on
+    if (!ex.slash) m.active = nextOpenSlot(m.active);
+  } else {
+    if (!slot.n) return;          // pick the numeral first
+    slot.t = value || null;
+    m.active = nextOpenSlot(m.active);
+  }
+  renderMultiGrid(ex);
+}
+
+function clearActiveSlot() {
+  const m = state.multi;
+  const slot = m && m.slots[m.active];
+  if (state.answered || !slot || slot.locked) return;
+  slot.n = null; slot.t = null;
+  renderMultiGrid(state.exercise);
+}
+
+function isSlotCorrect(r) {
+  const s = state.multi.slots[r];
+  const c = chordAnswerParts(state.exercise.slots[r].correct);
+  return sameSound(chordPitchClasses(s.n, s.t), chordPitchClasses(c.numeral, c.target));
+}
+
+function checkMulti() {
+  const ex = state.exercise, m = state.multi;
   if (state.answered || !ex || ex.kind !== 'multi') return;
-  if (state.multiSelection.some(s => s.n === null)) return;
-  state.answered = true;
+  const open = m.slots.map((s, r) => r).filter(r => !m.slots[r].locked);
+  if (open.some(r => !m.slots[r].n)) return;
 
-  const responseTimeMs = Date.now() - (state.startTime || Date.now());
-  // Graded by sound: any spelling that names the same notes is correct
-  const results = ex.slots.map((slot, r) => {
-    const s = state.multiSelection[r];
-    const c = chordAnswerParts(slot.correct);
-    return sameSound(chordPitchClasses(s.n, s.t), chordPitchClasses(c.numeral, c.target));
-  });
-  const nRight   = results.filter(Boolean).length;
-  const allRight = nRight === results.length;
-
-  // Each chord is its own skill, so weak chords get tracked individually
-  ex.slots.forEach((slot, r) => adaptive.update(`progression_chord_${slot.correct}`, results[r], responseTimeMs));
-  adaptive.update('progression_overall', allRight, responseTimeMs);
-
-  // Mark every row
-  ex.slots.forEach((slot, r) => {
-    const s        = state.multiSelection[r];
-    const c        = chordAnswerParts(slot.correct);
-    const usual    = PROG_CHORD_BY_ID[slot.correct].label;
-    const mark     = (part, value, cls) => {
-      const el = document.querySelector(`.multi-btn[data-row="${r}"][data-part="${part}"][data-value="${value || ''}"]`);
-      if (el) el.classList.add(cls);
-    };
-    const note = document.getElementById(`multi-note-${r}`);
-    if (results[r]) {
-      mark('n', s.n, 'correct');
-      if (ex.slash) mark('t', s.t, 'correct');
-      // Right sound, different spelling: say how it's usually written
-      if (answerLabel(s) !== usual) note.innerHTML = `✓ Usually written <strong>${usual}</strong>`;
-    } else {
-      // Only flag the part(s) that differ from the usual spelling
-      if (s.n === c.numeral) mark('n', s.n, 'correct');
-      else { mark('n', s.n, 'incorrect'); mark('n', c.numeral, 'reveal'); }
-      if (ex.slash) {
-        if ((s.t || '') === (c.target || '')) mark('t', s.t, 'correct');
-        else { mark('t', s.t, 'incorrect'); mark('t', c.target, 'reveal'); }
-      }
-      note.innerHTML = `It was <strong>${usual}</strong>`;
+  const rt = Date.now() - (state.startTime || Date.now());
+  let anyWrong = false;
+  open.forEach(r => {
+    const s  = m.slots[r];
+    const ok = isSlotCorrect(r);
+    if (s.first === null) {
+      // First attempt on this chord: this is the one that counts
+      s.first = ok;
+      adaptive.update(`progression_chord_${ex.slots[r].correct}`, ok, rt);
     }
+    if (ok) s.locked = true;
+    else { s.wrong = true; anyWrong = true; }
   });
-  document.querySelectorAll('.multi-btn').forEach(b => b.disabled = true);
 
-  const btn = document.getElementById('btn-multi-check');
-  btn.disabled = false;
-  btn.textContent = 'Next';
-  btn.onclick = () => { state.sessionIndex++; advanceExercise(); };
+  if (!anyWrong) { finishMulti(rt); return; }
 
-  showFeedbackPanel(allRight, allRight ? 'Correct!' : `${nRight} of ${results.length} chords`, ex.explain);
+  m.missed = true;
+  m.active = open.find(r => !m.slots[r].locked);
+  showFeedbackPanel(false, 'Not quite — try again', 'Correct chords are locked in. The wrong ones were cleared.');
+  renderMultiGrid(ex);
+  // Let the red flash show, then clear the wrong guesses for another try
+  clearTimeout(state.multiClearTimer);
+  state.multiClearTimer = setTimeout(() => {
+    if (state.exercise !== ex || state.answered) return;
+    m.slots.forEach(s => { if (s.wrong) { s.wrong = false; s.n = null; s.t = null; } });
+    renderMultiGrid(ex);
+  }, 700);
+}
 
-  // XP: 4 per chord, +5 for getting the whole progression
-  const xp = Math.max(2, nRight * 4 + (allRight ? 5 : 0));
-  // Wait for "Next" — there's a whole progression to review
-  commitResult(allRight, xp, responseTimeMs, { autoAdvance: false });
+/** Give up: fill in the remaining chords (they already count as missed). */
+function revealMulti() {
+  const ex = state.exercise, m = state.multi;
+  if (state.answered || !m) return;
+  clearTimeout(state.multiClearTimer);
+  m.slots.forEach((s, r) => {
+    if (s.locked) return;
+    const c = chordAnswerParts(ex.slots[r].correct);
+    s.n = c.numeral; s.t = c.target; s.locked = true; s.given = true; s.wrong = false;
+    if (s.first === null) { s.first = false; adaptive.update(`progression_chord_${ex.slots[r].correct}`, false, 0); }
+  });
+  finishMulti(Date.now() - (state.startTime || Date.now()));
+}
+
+function finishMulti(rt) {
+  const ex = state.exercise, m = state.multi;
+  state.answered = true;
+  clearTimeout(state.multiClearTimer);
+
+  const nFirst   = m.slots.filter(s => s.first).length;
+  const allFirst = nFirst === m.slots.length;
+  adaptive.update('progression_overall', allFirst, rt);
+
+  renderMultiGrid(ex);
+  const title = allFirst ? 'Correct!' : `${nFirst} of ${m.slots.length} right on the first try`;
+  showFeedbackPanel(allFirst, title, ex.explain);
+
+  // XP from first attempts only: 4 per chord, +5 for the whole progression
+  const xp = Math.max(2, nFirst * 4 + (allFirst ? 5 : 0));
+  commitResult(allFirst, xp, rt, { autoAdvance: false });
+}
+
+function nextFromMulti() {
+  state.sessionIndex++;
+  advanceExercise();
 }
 
 /* ── Play / Replay ── */
@@ -891,22 +989,39 @@ function handleReplay() { if (state.exercise) playExercise(state.exercise.replay
 
 /* ── Answer Handling ── */
 function handleAnswer(choiceIndex) {
-  if (state.answered || !state.exercise || state.exercise.kind === 'multi') return;
-  state.answered = true;
+  const ex = state.exercise;
+  if (state.answered || !ex || ex.kind === 'multi') return;
+  const btn = document.querySelectorAll('.choice-btn')[choiceIndex];
+  if (!btn || btn.disabled) return;
 
-  const ex             = state.exercise;
   const correct        = choiceIndex === ex.correctIndex;
   const responseTimeMs = Date.now() - (state.startTime || Date.now());
 
-  adaptive.update(ex.skillKey, correct, responseTimeMs);
-  adaptive.update(`${ex.type}_overall`, correct, responseTimeMs);
+  // Only the first guess counts toward ratings and accuracy
+  if (state.firstResult === null) {
+    state.firstResult = correct;
+    adaptive.update(ex.skillKey, correct, responseTimeMs);
+    adaptive.update(`${ex.type}_overall`, correct, responseTimeMs);
+  }
 
-  showFeedback(correct, ex, choiceIndex);
-  document.querySelectorAll('.choice-btn').forEach(btn => btn.disabled = true);
+  if (!correct) {
+    // Free retry: mark this choice wrong and let them try again
+    btn.classList.add('incorrect');
+    btn.disabled = true;
+    showFeedbackPanel(false, 'Not quite — try again', '');
+    return;
+  }
 
-  let xpEarned = correct ? 10 : 2;
-  if (correct && responseTimeMs < 3000) xpEarned += 5;
-  commitResult(correct, xpEarned, responseTimeMs);
+  state.answered = true;
+  btn.classList.add('correct');
+  document.querySelectorAll('.choice-btn').forEach(b => b.disabled = true);
+
+  const first = state.firstResult;
+  showFeedbackPanel(true, first ? 'Correct!' : 'Got it', ex.explain);
+
+  let xpEarned = first ? 10 : 2;
+  if (first && responseTimeMs < 3000) xpEarned += 5;
+  commitResult(first, xpEarned, responseTimeMs);
 }
 
 /**
@@ -950,18 +1065,6 @@ function commitResult(correct, xpEarned, responseTimeMs, { autoAdvance = true } 
     state.sessionIndex++;
     advanceExercise();
   }, delay);
-}
-
-function showFeedback(correct, ex, selectedIndex) {
-  const btns = document.querySelectorAll('.choice-btn');
-
-  if (btns[selectedIndex]) {
-    btns[selectedIndex].classList.add(correct ? 'correct' : 'incorrect');
-  }
-  if (!correct && btns[ex.correctIndex]) {
-    btns[ex.correctIndex].classList.add('reveal');
-  }
-  showFeedbackPanel(correct, correct ? 'Correct!' : 'Not quite...', ex.explain);
 }
 
 function showFeedbackPanel(correct, title, explain) {
@@ -1116,11 +1219,20 @@ function handleKeyDown(e) {
 
   if (!isExerciseOpen()) return;
 
-  // Multi-part (progression) questions: Enter checks once every row is filled
-  if (!state.answered && e.key === 'Enter' && state.exercise && state.exercise.kind === 'multi') {
-    e.preventDefault();
-    submitMulti();
-    return;
+  // Progression questions: arrows move between chords, Backspace clears, Enter checks
+  if (!state.answered && state.exercise && state.exercise.kind === 'multi') {
+    const m = state.multi;
+    if (e.key === 'Enter') { e.preventDefault(); checkMulti(); return; }
+    if (e.key === 'Backspace' || e.key === 'Delete') { e.preventDefault(); clearActiveSlot(); return; }
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      e.preventDefault();
+      const dir = e.key === 'ArrowRight' ? 1 : -1, n = m.slots.length;
+      for (let k = 1; k <= n; k++) {
+        const r = (m.active + dir * k + n) % n;
+        if (!m.slots[r].locked) { setActiveSlot(r); break; }
+      }
+      return;
+    }
   }
 
   // 1-4: select answer

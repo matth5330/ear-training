@@ -30,7 +30,7 @@ Runs in its own window from your taskbar/Start menu, fully offline after the fir
 - Functional ear training — scale degrees with I-IV-V-I cadence context
 - Perfect pitch training (4 progressive levels)
 - Chord progressions with modal interchange (borrowed chords), named chord-by-chord
-  - Chord 1 is always I; pick each following chord from its own row
+  - Chord strip (I – ? – ? – ?) with one shared keypad: tap a chord slot, then a numeral (and optional slash target)
   - Level 1: I IV V vi → Level 2: all diatonic → Level 3: + iv bVII bVI → Level 4: + vii° bIII v i → Level 5: + ii° bII II III and sus chords → Level 6: + secondary dominants (V/x) → Level 7: + secondary leading-tone chords (vii°/x)
   - From level 6, each answer is a numeral plus an optional slash target (e.g. V/V); applied chords play as 7ths and always resolve to their target
   - Graded by sound: any spelling that names the same notes counts, with a note showing the usual spelling
@@ -55,6 +55,7 @@ Runs in its own window from your taskbar/Start menu, fully offline after the fir
 - Scale playback modes: ascending, descending, up & down, random order, random diads, mixed
 - Audio stops instantly when quitting an exercise, switching tabs, or starting another example
 - Exercise modal with piano keyboard visualization
+- Guess until right: only your first guess counts toward accuracy, skill level and XP
 - Keyboard shortcuts — `1`–`4` to answer, `Space`/`A` to replay, `Enter` to continue
 - Radar chart showing proficiency across all 6 types
 - Accuracy bar charts per category
