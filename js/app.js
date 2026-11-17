@@ -352,9 +352,10 @@ function playLearnExample(kind, id) {
     }
     case 'progression':
     case 'borrowed': {
-      // A borrowed chord is heard in context: I → chord → I
+      // Heard in context: I → chord → I, or I → chord → its target → I for applied chords
+      const ch  = PROG_CHORD_BY_ID[id];
       const ids = kind === 'borrowed'
-        ? (PROG_CHORD_BY_ID[id] ? ['I', id, 'I'] : null)
+        ? (ch ? (ch.target ? ['I', id, ch.target, 'I'] : ['I', id, 'I']) : null)
         : (LEARN_PROGRESSIONS.find(p => p.id === id) || {}).chords;
       if (!ids) return 0;
       const gap = 0.9 * sp;
@@ -735,11 +736,12 @@ function renderExercise(ex) {
   const isMulti = ex.kind === 'multi';
   grid.classList.toggle('multi', isMulti);
   document.querySelector('.keyboard-hint').innerHTML = isMulti
-    ? 'Pick a chord in each row, then <kbd>Enter</kbd> to check &nbsp;·&nbsp; <kbd>Space</kbd> to replay'
+    ? (ex.slash ? 'Pick a numeral (and optionally a target after the slash) in each row, then <kbd>Enter</kbd> to check &nbsp;·&nbsp; <kbd>Space</kbd> to replay'
+                : 'Pick a chord in each row, then <kbd>Enter</kbd> to check &nbsp;·&nbsp; <kbd>Space</kbd> to replay')
     : 'Press <kbd>1</kbd>–<kbd>4</kbd> to answer &nbsp;·&nbsp; <kbd>Space</kbd> / <kbd>A</kbd> to replay &nbsp;·&nbsp; <kbd>Enter</kbd> to continue';
 
   if (isMulti) {
-    state.multiSelection = ex.slots.map(() => null);
+    state.multiSelection = ex.slots.map(() => ({ n: null, t: null }));
     renderMultiGrid(ex);
   } else {
     // Build choices with keyboard shortcut badges
@@ -756,44 +758,75 @@ function renderExercise(ex) {
 }
 
 /* ── Multi-part answers (one row per chord) ── */
+/** Split numeral options into lines: diatonic / borrowed / colour / sus. */
+function groupOptions(options) {
+  const order = ['diatonic', 'borrowed', 'chromatic', 'sus'];
+  return order
+    .map(g => options.filter(o => PROG_CHORD_BY_ID[o.value].group === g))
+    .filter(list => list.length);
+}
+
+function answerLabel(sel) {
+  const n = PROG_CHORD_BY_ID[sel.n].label;
+  return sel.t ? `${n}/${PROG_CHORD_BY_ID[sel.t].label}` : n;
+}
+
 function renderMultiGrid(ex) {
   const sel = state.multiSelection;
+  const btn = (r, part, o, active) => `
+    <button class="multi-btn ${active ? 'selected' : ''} ${o.value ? `grp-${PROG_CHORD_BY_ID[o.value].group}` : 'grp-none'}"
+      data-row="${r}" data-part="${part}" data-value="${o.value}"
+      onclick="selectMulti(${r}, '${part}', '${o.value}')">${o.label}</button>`;
+
   const rows = ex.slots.map((slot, r) => `
     <div class="multi-row" data-row="${r}">
       <div class="multi-row-label">${slot.label}</div>
-      <div class="multi-options">
-        ${ex.options.map(o => `
-          <button class="multi-btn ${sel[r] === o.value ? 'selected' : ''} grp-${PROG_CHORD_BY_ID[o.value].group}"
-            data-row="${r}" data-value="${o.value}" onclick="selectMulti(${r}, '${o.value}')">${o.label}</button>`).join('')}
+      <div class="multi-answer">
+        <div class="multi-numerals">${groupOptions(ex.options).map(group => `
+          <div class="multi-options">${group.map(o => btn(r, 'n', o, sel[r].n === o.value)).join('')}</div>`).join('')}
+        </div>
+        ${ex.slash ? `
+          <div class="multi-slash">
+            <span class="slash-mark" aria-hidden="true">/</span>
+            <div class="multi-options">
+              ${[{ value: '', label: '—' }, ...ex.targets].map(o => btn(r, 't', o, (sel[r].t || '') === o.value)).join('')}
+            </div>
+          </div>` : ''}
+        <div class="multi-note" id="multi-note-${r}"></div>
       </div>
     </div>`).join('');
 
-  const ready = sel.every(v => v !== null);
+  const missing = sel.filter(s => s.n === null).length;
   document.getElementById('choices-grid').innerHTML = `
     <div class="multi-row given">
       <div class="multi-row-label">Chord 1</div>
       <div class="multi-given">Always <strong>${ex.givenFirst}</strong>, the tonic chord.</div>
     </div>
     ${rows}
-    <button class="btn-primary multi-check" id="btn-multi-check" onclick="submitMulti()" ${ready ? '' : 'disabled'}>
-      ${ready ? 'Check' : `Pick ${sel.filter(v => v === null).length} more`}
+    <button class="btn-primary multi-check" id="btn-multi-check" onclick="submitMulti()" ${missing ? 'disabled' : ''}>
+      ${missing ? `Pick ${missing} more` : 'Check'}
     </button>`;
 }
 
-function selectMulti(row, value) {
+function selectMulti(row, part, value) {
   if (state.answered || !state.exercise) return;
-  state.multiSelection[row] = value;
+  state.multiSelection[row][part] = value || null;
   renderMultiGrid(state.exercise);
 }
 
 function submitMulti() {
   const ex = state.exercise;
   if (state.answered || !ex || ex.kind !== 'multi') return;
-  if (state.multiSelection.some(v => v === null)) return;
+  if (state.multiSelection.some(s => s.n === null)) return;
   state.answered = true;
 
   const responseTimeMs = Date.now() - (state.startTime || Date.now());
-  const results  = ex.slots.map((slot, r) => state.multiSelection[r] === slot.correct);
+  // Graded by sound: any spelling that names the same notes is correct
+  const results = ex.slots.map((slot, r) => {
+    const s = state.multiSelection[r];
+    const c = chordAnswerParts(slot.correct);
+    return sameSound(chordPitchClasses(s.n, s.t), chordPitchClasses(c.numeral, c.target));
+  });
   const nRight   = results.filter(Boolean).length;
   const allRight = nRight === results.length;
 
@@ -803,11 +836,28 @@ function submitMulti() {
 
   // Mark every row
   ex.slots.forEach((slot, r) => {
-    const picked = document.querySelector(`.multi-btn[data-row="${r}"][data-value="${state.multiSelection[r]}"]`);
-    if (picked) picked.classList.add(results[r] ? 'correct' : 'incorrect');
-    if (!results[r]) {
-      const right = document.querySelector(`.multi-btn[data-row="${r}"][data-value="${slot.correct}"]`);
-      if (right) right.classList.add('reveal');
+    const s        = state.multiSelection[r];
+    const c        = chordAnswerParts(slot.correct);
+    const usual    = PROG_CHORD_BY_ID[slot.correct].label;
+    const mark     = (part, value, cls) => {
+      const el = document.querySelector(`.multi-btn[data-row="${r}"][data-part="${part}"][data-value="${value || ''}"]`);
+      if (el) el.classList.add(cls);
+    };
+    const note = document.getElementById(`multi-note-${r}`);
+    if (results[r]) {
+      mark('n', s.n, 'correct');
+      if (ex.slash) mark('t', s.t, 'correct');
+      // Right sound, different spelling: say how it's usually written
+      if (answerLabel(s) !== usual) note.innerHTML = `✓ Usually written <strong>${usual}</strong>`;
+    } else {
+      // Only flag the part(s) that differ from the usual spelling
+      if (s.n === c.numeral) mark('n', s.n, 'correct');
+      else { mark('n', s.n, 'incorrect'); mark('n', c.numeral, 'reveal'); }
+      if (ex.slash) {
+        if ((s.t || '') === (c.target || '')) mark('t', s.t, 'correct');
+        else { mark('t', s.t, 'incorrect'); mark('t', c.target, 'reveal'); }
+      }
+      note.innerHTML = `It was <strong>${usual}</strong>`;
     }
   });
   document.querySelectorAll('.multi-btn').forEach(b => b.disabled = true);

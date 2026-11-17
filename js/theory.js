@@ -141,6 +141,7 @@ const FUNCTIONAL_LEVELS = [
    root = semitones above the tonic; intervals = from the chord root.
    ══════════════════════════════════════════ */
 const MAJ = [0,4,7], MIN = [0,3,7], DIM = [0,3,6], SUS2 = [0,2,7], SUS4 = [0,5,7];
+const DOM7 = [0,4,7,10], DIM7 = [0,3,6,9];
 
 const PROG_CHORDS = [
   // Diatonic
@@ -170,7 +171,56 @@ const PROG_CHORDS = [
   { id: 'IVsus2', label: 'IVsus2', root: 5,  intervals: SUS2, group: 'sus', desc: 'Airy subdominant' },
   { id: 'Vsus4',  label: 'Vsus4',  root: 7,  intervals: SUS4, group: 'sus', desc: 'Dominant with suspense' },
 ];
+
+/* Applied (secondary) chords: numeral X of the chord Y, written X/Y.
+   Played as 7th chords: V/Y as a dominant 7th, vii°/Y as a diminished 7th. */
+const SLASH_TARGETS = ['ii', 'iii', 'IV', 'V', 'vi'];
+SLASH_TARGETS.forEach(t => {
+  const target = PROG_CHORDS.find(c => c.id === t);
+  PROG_CHORDS.push(
+    { id: `V/${t}`,    label: `V/${target.label}`,    numeral: 'V',    target: t, root: (target.root + 7) % 12,
+      intervals: DOM7, group: 'applied', from: 'secondary dominant', desc: `Dominant 7th that pulls to ${target.label}` },
+  );
+});
+SLASH_TARGETS.forEach(t => {
+  const target = PROG_CHORDS.find(c => c.id === t);
+  PROG_CHORDS.push(
+    { id: `viio/${t}`, label: `vii°/${target.label}`, numeral: 'viio', target: t, root: (target.root + 11) % 12,
+      intervals: DIM7, group: 'applied', from: 'secondary leading-tone', desc: `Diminished 7th that leads into ${target.label}` },
+  );
+});
 const PROG_CHORD_BY_ID = Object.fromEntries(PROG_CHORDS.map(c => [c.id, c]));
+
+/* Numerals offered on the left of the slash (every non-applied chord) */
+const NUMERAL_IDS = PROG_CHORDS.filter(c => c.group !== 'applied').map(c => c.id);
+
+/**
+ * The pitch classes (relative to the tonic) that an answer names.
+ * "X" alone is the chord X. "X/Y" is X built in the key of Y's root;
+ * V/Y becomes a dominant 7th and vii°/Y a diminished 7th.
+ * Answers are graded by comparing these, so equivalent spellings
+ * (e.g. IV/IV and bVII) are both accepted.
+ */
+function chordPitchClasses(numeralId, targetId = null) {
+  const n = PROG_CHORD_BY_ID[numeralId];
+  let root = n.root, ints = n.intervals;
+  if (targetId) {
+    root = (PROG_CHORD_BY_ID[targetId].root + n.root) % 12;
+    if (numeralId === 'V')    ints = DOM7;
+    if (numeralId === 'viio') ints = DIM7;
+  }
+  return [...new Set(ints.map(i => (root + i) % 12))].sort((a, b) => a - b);
+}
+
+/** Split a chord id into its answer parts: { numeral, target }. */
+function chordAnswerParts(id) {
+  const c = PROG_CHORD_BY_ID[id];
+  return c.group === 'applied' ? { numeral: c.numeral, target: c.target } : { numeral: id, target: null };
+}
+
+function sameSound(a, b) {
+  return a.length === b.length && a.every((x, i) => x === b[i]);
+}
 
 /* ── Difficulty levels: which chords can appear ── */
 const PROG_PALETTES = (() => {
@@ -179,7 +229,9 @@ const PROG_PALETTES = (() => {
   const l3 = [...l2, 'iv', 'bVII', 'bVI'];
   const l4 = [...l3, 'viio', 'bIII', 'v', 'i'];
   const l5 = [...l4, 'iio', 'bII', 'II', 'III', 'Isus2', 'Isus4', 'iisus2', 'IVsus2', 'Vsus4'];
-  return [l1, l2, l3, l4, l5];
+  const l6 = [...l5, ...SLASH_TARGETS.map(t => `V/${t}`)];
+  const l7 = [...l6, ...SLASH_TARGETS.map(t => `viio/${t}`)];
+  return [l1, l2, l3, l4, l5, l6, l7];
 })();
 
 /** Sort chord ids into display order (diatonic, borrowed, chromatic, sus). */
@@ -191,17 +243,23 @@ function sortProgChords(ids) {
 /**
  * Random progression starting on I. Diatonic chords are weighted 3:1 over
  * borrowed/colour chords so progressions still sound like they're in a key.
- * No chord repeats back-to-back.
+ * No chord repeats back-to-back. An applied chord (V/x, vii°/x) is always
+ * followed by the chord it resolves to, so it never appears last.
  */
 function randomProgression(palette, length) {
   const chords = ['I'];
   while (chords.length < length) {
-    const options = palette.filter(id => id !== chords[chords.length - 1]);
+    const prev    = chords[chords.length - 1];
+    const lastPos = chords.length === length - 1;
+    let options = palette.filter(id => id !== prev && !(lastPos && PROG_CHORD_BY_ID[id].group === 'applied'));
+    if (!options.length) options = ['IV', 'V', 'vi'].filter(id => id !== prev); // e.g. custom set of only I + applied chords
     const weights = options.map(id => PROG_CHORD_BY_ID[id].group === 'diatonic' ? 3 : 1);
     let r = Math.random() * weights.reduce((s, w) => s + w, 0);
     let pick = options[options.length - 1];
     for (let i = 0; i < options.length; i++) { r -= weights[i]; if (r < 0) { pick = options[i]; break; } }
     chords.push(pick);
+    const target = PROG_CHORD_BY_ID[pick].target;
+    if (target) chords.push(target); // resolve the applied chord
   }
   return chords;
 }

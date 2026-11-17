@@ -31,7 +31,9 @@ Runs in its own window from your taskbar/Start menu, fully offline after the fir
 - Perfect pitch training (4 progressive levels)
 - Chord progressions with modal interchange (borrowed chords), named chord-by-chord
   - Chord 1 is always I; pick each following chord from its own row
-  - Level 1: I IV V vi → Level 2: all diatonic → Level 3: + iv bVII bVI → Level 4: + vii° bIII v i → Level 5: + ii° bII II III and sus chords
+  - Level 1: I IV V vi → Level 2: all diatonic → Level 3: + iv bVII bVI → Level 4: + vii° bIII v i → Level 5: + ii° bII II III and sus chords → Level 6: + secondary dominants (V/x) → Level 7: + secondary leading-tone chords (vii°/x)
+  - From level 6, each answer is a numeral plus an optional slash target (e.g. V/V); applied chords play as 7ths and always resolve to their target
+  - Graded by sound: any spelling that names the same notes counts, with a note showing the usual spelling
   - Custom chord sets and 3–6 chords per progression on the setup screen
   - Each chord is tracked as its own skill
   - The earlier mode-based version is kept in `js/archive/modal-progressions.js` (not loaded)

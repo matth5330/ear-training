@@ -707,3 +707,22 @@ kbd {
 .chip-toggle.on { color: var(--text); background: rgba(233,69,96,0.18); border-color: var(--primary); }
 .chip-toggle:disabled { cursor: default; opacity: 0.8; }
 .btn-primary:disabled { opacity: 0.45; cursor: default; box-shadow: none; }
+
+/* ── Slash (applied chord) answers ── */
+.multi-answer { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.multi-slash { display: flex; align-items: flex-start; gap: 8px; }
+.slash-mark { font-size: 22px; font-weight: 300; color: var(--text-muted); line-height: 36px; }
+.multi-btn.grp-none { border-style: solid; color: var(--text-muted); }
+.multi-note { font-size: 13px; color: var(--text-muted); min-height: 0; }
+.multi-note:empty { display: none; }
+.multi-numerals { display: flex; flex-direction: column; gap: 6px; }
+.multi-slash .multi-btn { min-width: 44px; }
+/* Numeral groups line up in a fixed 7-column grid (7 diatonic / 7 borrowed) */
+.multi-numerals .multi-options,
+.multi-slash .multi-options { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; width: 100%; }
+.multi-slash .multi-options { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.multi-numerals .multi-btn, .multi-slash .multi-btn { min-width: 0; padding: 8px 2px; }
+.multi-slash { width: 100%; }
+@media (max-width: 420px) {
+  .multi-numerals .multi-btn, .multi-slash .multi-btn { font-size: 12px; }
+}

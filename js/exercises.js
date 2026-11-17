@@ -339,13 +339,18 @@ function generateProgressionExercise() {
     highlightKeys(voicings[0]);
   };
 
-  // Explain any borrowed / colour chords that appeared
+  // Explain any borrowed / colour / applied chords that appeared
   const borrowed = [...new Set(chords)]
     .map(id => PROG_CHORD_BY_ID[id])
     .filter(c => c.from)
-    .map(c => `${c.label} from ${c.from}`);
+    .map(c => c.group === 'applied' ? `${c.label} is a ${c.from}` : `${c.label} from ${c.from}`);
 
   const keyName = midiToName(tonicMidi, true).replace(/\d+$/, '');
+
+  // Once applied chords are possible, answers become "numeral / target"
+  // with every numeral available; otherwise just the level's chords.
+  const slash = palette.some(id => PROG_CHORD_BY_ID[id].group === 'applied');
+  const numeralIds = slash ? NUMERAL_IDS : palette;
 
   return {
     type: 'progression',
@@ -355,7 +360,9 @@ function generateProgressionExercise() {
     keyLabel: `Key: ${keyName} major`,
     play:  playFn,
     replay: playFn,
-    options: palette.map(id => ({ value: id, label: PROG_CHORD_BY_ID[id].label })),
+    slash,
+    options: numeralIds.map(id => ({ value: id, label: PROG_CHORD_BY_ID[id].label })),
+    targets: slash ? SLASH_TARGETS.map(id => ({ value: id, label: PROG_CHORD_BY_ID[id].label })) : [],
     slots: chords.slice(1).map((id, i) => ({ label: `Chord ${i + 2}`, correct: id })),
     givenFirst: 'I',
     notes: voicings[0],
