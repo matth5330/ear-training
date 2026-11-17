@@ -667,3 +667,43 @@ kbd {
 /* ── Learn: progression mode groups ── */
 .learn-subhead { font-size: 14px; margin: 14px 0 8px; }
 .learn-subhead:first-child { margin-top: 0; }
+
+/* ── Multi-part answers: one row per chord ── */
+.choices-grid.multi { display: flex; flex-direction: column; gap: 12px; }
+.multi-row {
+  display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 10px; align-items: start;
+}
+.multi-row-label { font-size: 13px; font-weight: 700; padding-top: 9px; }
+.multi-given { font-size: 14px; color: var(--text-muted); padding-top: 8px; }
+.multi-options { display: flex; flex-wrap: wrap; gap: 6px; }
+.multi-btn {
+  min-width: 52px; padding: 8px 10px;
+  background: var(--surface2); color: var(--text);
+  border: 2px solid var(--border); border-radius: var(--radius-sm);
+  font-size: 14px; font-weight: 600; cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.multi-btn:hover:not(:disabled) { border-color: var(--primary); }
+.multi-btn:not(.grp-diatonic) { border-style: dashed; }
+.multi-btn.selected { background: var(--primary); border-color: var(--primary); color: #fff; }
+.multi-btn.correct  { background: rgba(76,175,80,0.2); border-color: var(--success); border-style: solid; color: var(--success); }
+.multi-btn.incorrect{ background: rgba(244,67,54,0.15); border-color: var(--error); border-style: solid; color: var(--error); }
+.multi-btn.reveal   { border-color: var(--success); border-style: solid; color: var(--success); }
+.multi-btn:disabled { cursor: default; }
+.multi-btn:disabled:not(.correct):not(.incorrect):not(.reveal) { opacity: 0.45; }
+.multi-check { align-self: center; min-width: 160px; margin-top: 4px; }
+.multi-check:disabled { opacity: 0.45; cursor: default; box-shadow: none; }
+@media (max-width: 420px) {
+  .multi-row { grid-template-columns: 1fr; gap: 6px; }
+  .multi-row-label, .multi-given { padding-top: 0; }
+}
+
+/* ── Setup: toggleable chord chips ── */
+.chip-toggle {
+  cursor: pointer; color: var(--text-muted); background: transparent;
+  border: 1px solid var(--border); font-weight: 600; font-family: inherit;
+}
+.chip-toggle:not(.chip-diatonic) { border-style: dashed; }
+.chip-toggle.on { color: var(--text); background: rgba(233,69,96,0.18); border-color: var(--primary); }
+.chip-toggle:disabled { cursor: default; opacity: 0.8; }
+.btn-primary:disabled { opacity: 0.45; cursor: default; box-shadow: none; }

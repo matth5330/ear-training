@@ -29,11 +29,12 @@ Runs in its own window from your taskbar/Start menu, fully offline after the fir
 - Scale / mode recognition (13 scales)
 - Functional ear training — scale degrees with I-IV-V-I cadence context
 - Perfect pitch training (4 progressive levels)
-- Chord progression identification in all 7 modes (Major, Minor, Dorian, Phrygian, Lydian, Mixolydian, Locrian) or mixed
-  - Levels 1–3: a library of 64 named progressions, common → less common
-  - Level 4: any 4-chord diatonic progression starting on the tonic (216 per mode)
-  - Level 5: any 4-chord diatonic progression (1,512 per mode)
-  - Tonic chord plays first to establish the key
+- Chord progressions with modal interchange (borrowed chords), named chord-by-chord
+  - Chord 1 is always I; pick each following chord from its own row
+  - Level 1: I IV V vi → Level 2: all diatonic → Level 3: + iv bVII bVI → Level 4: + vii° bIII v i → Level 5: + ii° bII II III and sus chords
+  - Custom chord sets and 3–6 chords per progression on the setup screen
+  - Each chord is tracked as its own skill
+  - The earlier mode-based version is kept in `js/archive/modal-progressions.js` (not loaded)
 
 **Audio**
 - Web Audio API synthesis with piano-like timbre

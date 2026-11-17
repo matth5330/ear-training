@@ -52,7 +52,6 @@ function defaultState() {
       autoProceed:       false,        // advance immediately on correct answer
       endlessMode:       false,        // never-ending session (daily workout)
       scaleMode:         'ascending',  // see SCALE_PLAY_MODES
-      progressionMode:   'ionian',     // a MODES id, or 'mixed'
       practiceSetup:     {},           // last-used setup per exercise type
     },
   };
@@ -304,11 +303,15 @@ function renderLearnTab() {
 
   const progContainer = document.getElementById('prog-cards');
   if (progContainer) {
-    progContainer.innerHTML = MODES.map(m => `
-      <div class="learn-subhead"><strong>${m.name}</strong> <span class="muted-text">— ${m.character}</span></div>
-      <div class="learn-cards-grid">
-        ${PROGRESSION_LIBRARY.filter(p => p.mode === m.id).map(p => card('progression', p.id, p.name, p.desc)).join('')}
-      </div>`).join('');
+    progContainer.innerHTML = LEARN_PROGRESSIONS.map(p => card('progression', p.id, p.name, p.desc)).join('');
+  }
+
+  const borrowedContainer = document.getElementById('borrowed-cards');
+  if (borrowedContainer) {
+    borrowedContainer.innerHTML = PROG_CHORDS
+      .filter(c => c.group !== 'diatonic')
+      .map(c => card('borrowed', c.id, c.label, c.from ? `${c.desc} · from ${c.from}` : c.desc))
+      .join('');
   }
 }
 
@@ -347,13 +350,16 @@ function playLearnExample(kind, id) {
       if (!scale) return 0;
       return audio.playScale(root, scale.intervals, t, true, sp) - t;
     }
-    case 'progression': {
-      const prog = PROGRESSION_LIBRARY.find(p => p.id === id);
-      if (!prog) return 0;
-      const gap    = 0.9 * sp;
-      const chords = progressionVoicings(prog.mode, prog.degrees, prog.sevenths, 60); // in C
-      chords.forEach((notes, i) => audio.playChord(notes, t + i * gap, 0.85 * sp, 0.28));
-      return chords.length * gap + 0.85 * sp;
+    case 'progression':
+    case 'borrowed': {
+      // A borrowed chord is heard in context: I → chord → I
+      const ids = kind === 'borrowed'
+        ? (PROG_CHORD_BY_ID[id] ? ['I', id, 'I'] : null)
+        : (LEARN_PROGRESSIONS.find(p => p.id === id) || {}).chords;
+      if (!ids) return 0;
+      const gap = 0.9 * sp;
+      ids.forEach((cid, i) => audio.playChord(progChordNotes(cid, 60), t + i * gap, 0.85 * sp, 0.28));
+      return ids.length * gap + 0.85 * sp;
     }
   }
   return 0;
@@ -386,9 +392,6 @@ function renderSettingsTab() {
 
   const scaleSel = document.getElementById('scale-mode-select');
   if (scaleSel) scaleSel.value = state.settings.scaleMode;
-
-  const progSel = document.getElementById('progression-mode-select');
-  if (progSel) progSel.value = state.settings.progressionMode;
 
   const fixedRootChk = document.getElementById('fixed-root-toggle');
   if (fixedRootChk) fixedRootChk.checked = state.settings.fixedRoot;
@@ -427,10 +430,11 @@ function startCategoryPractice(type, setup = getPracticeSetup(type)) {
     endless,
     types: [type],
     practice: {
-      level:             setup.level === 'auto' ? undefined : setup.level,
+      level:             Number.isInteger(setup.level) ? setup.level : undefined,
+      chords:            setup.level === 'custom' ? setup.chords : undefined,
       intervalDirection: setup.intervalDirection,
       scaleMode:         setup.scaleMode,
-      progressionMode:   setup.progressionMode,
+      progressionLength: setup.progressionLength,
     },
   });
   lastLaunch = () => startCategoryPractice(type, setup);
@@ -499,33 +503,42 @@ function levelsFor(type, opts = {}) {
     case 'scale':       return SCALE_LEVELS.map(l => l.map(id => SCALE_TYPES.find(s => s.id === id).name));
     case 'functional':  return FUNCTIONAL_LEVELS.map(l => l.map(d => SCALE_DEGREES.find(x => x.degree === d).solfege));
     case 'pitch':       return PERFECT_PITCH_LEVELS;
-    case 'progression': {
-      const mode  = opts.progressionMode || state.settings.progressionMode || 'ionian';
-      const mixed = mode === 'mixed';
-      const named = tier => mixed
-        ? MODES.map(m => `${m.name}: ${namedProgressions(m.id, tier).length}`)
-        : namedProgressions(mode, tier).map(p => p.name);
-      const per = mixed ? ' per mode' : '';
-      return [
-        named(1), named(2), named(3),
-        ['Any 4 chords starting on the tonic', `216 progressions${per}`],
-        ['Any 4 chords, any starting chord', `1,512 progressions${per}`],
-      ];
-    }
+    case 'progression': return PROG_PALETTES.map(p => p.map(id => PROG_CHORD_BY_ID[id].label));
   }
   return [[]];
 }
 
 function getPracticeSetup(type) {
   const base = { length: state.sessionLength, level: 'auto' };
-  if (type === 'interval') base.intervalDirection = state.settings.intervalDirection;
-  if (type === 'scale')    base.scaleMode         = state.settings.scaleMode;
-  if (type === 'progression') base.progressionMode = state.settings.progressionMode;
+  if (type === 'interval')    base.intervalDirection = state.settings.intervalDirection;
+  if (type === 'scale')       base.scaleMode         = state.settings.scaleMode;
+  if (type === 'progression') base.progressionLength = 4;
   const saved = (state.settings.practiceSetup || {})[type] || {};
   const setup = Object.assign(base, saved);
+  delete setup.progressionMode; // from the archived modal version
+
   // Guard against a level that no longer exists
-  if (setup.level !== 'auto' && !(setup.level >= 0 && setup.level < levelsFor(type).length)) setup.level = 'auto';
+  const customOk = type === 'progression' && setup.level === 'custom'
+    && Array.isArray(setup.chords) && setup.chords.filter(id => PROG_CHORD_BY_ID[id]).length >= 2;
+  if (setup.level !== 'auto' && !customOk && !(setup.level >= 0 && setup.level < levelsFor(type).length)) setup.level = 'auto';
+  if (customOk) setup.chords = setup.chords.filter(id => PROG_CHORD_BY_ID[id]);
   return setup;
+}
+
+/** Chord ids currently selected on the progression setup screen. */
+function setupPalette(d) {
+  if (d.level === 'custom') return d.chords;
+  const lv = d.level === 'auto' ? adaptive.getLevel('progression', PROG_PALETTES.length) : d.level;
+  return PROG_PALETTES[lv];
+}
+
+function toggleSetupChord(id) {
+  if (id === 'I') return; // chord 1 is always I
+  const current = new Set(setupPalette(setupDraft));
+  current.has(id) ? current.delete(id) : current.add(id);
+  setupDraft.level  = 'custom';
+  setupDraft.chords = sortProgChords([...current]);
+  renderPracticeSetup();
 }
 
 let setupDraft = null;
@@ -550,13 +563,32 @@ function segControl(field, options, current) {
 
 function renderPracticeSetup() {
   const d      = setupDraft;
+  const isProg = d.type === 'progression';
   const levels = levelsFor(d.type, d);
   const auto   = adaptive.getLevel(d.type, levels.length);
   const shown  = d.level === 'auto' ? auto : d.level;
 
-  const levelNote = d.level === 'auto'
-    ? `Adjusts to your answers. You're currently on level ${auto + 1}.`
-    : `Fixed at level ${d.level + 1} of ${levels.length}.`;
+  const levelNote = d.level === 'auto'   ? `Adjusts to your answers. You're currently on level ${auto + 1}.`
+                  : d.level === 'custom' ? `Custom set of ${d.chords.length} chords.`
+                  : `Fixed at level ${d.level + 1} of ${levels.length}.`;
+
+  const levelOptions = [{ value: 'auto', label: 'Auto' }, ...levels.map((_, i) => ({ value: i, label: String(i + 1) }))];
+  if (isProg) levelOptions.push({ value: 'custom', label: 'Custom' });
+
+  // Progressions: every chord is a toggle; other types show a read-only preview
+  let chips;
+  if (isProg) {
+    const active = new Set(setupPalette(d));
+    chips = PROG_CHORDS.map(c => `
+      <button type="button" class="chip chip-toggle ${active.has(c.id) ? 'on' : ''} chip-${c.group}"
+        data-chord="${c.id}" aria-pressed="${active.has(c.id)}" ${c.id === 'I' ? 'disabled title="Chord 1 is always I"' : ''}>${c.label}</button>`).join('');
+  } else {
+    chips = levels[shown].map(x => `<span class="chip">${x}</span>`).join('');
+  }
+  const chipHint = isProg
+    ? '<div class="setup-note">Tap chords to build your own set. Dashed outlines are chords from outside the major key.</div>'
+    : '';
+  const canStart = !isProg || setupPalette(d).length >= 2;
 
   let extra = '';
   if (d.type === 'interval') {
@@ -578,15 +610,12 @@ function renderPracticeSetup() {
         <div class="setup-note">${modeDesc}</div>
       </div>`;
   }
-  if (d.type === 'progression') {
-    const info = d.progressionMode === 'mixed'
-      ? 'A different mode each question. The key and mode are shown.'
-      : MODES.find(m => m.id === d.progressionMode).character;
+  if (isProg) {
     extra = `
       <div class="setup-field">
-        <div class="setup-label">Mode</div>
-        ${segControl('progressionMode', [...MODES.map(m => ({ value: m.id, label: m.name })), { value: 'mixed', label: 'Mixed' }], d.progressionMode)}
-        <div class="setup-note">${info}</div>
+        <div class="setup-label">Chords per progression</div>
+        ${segControl('progressionLength', [3, 4, 5, 6].map(n => ({ value: n, label: String(n) })), d.progressionLength)}
+        <div class="setup-note">Chord 1 is always I. You name each of the others.</div>
       </div>`;
   }
 
@@ -603,32 +632,44 @@ function renderPracticeSetup() {
 
     <div class="setup-field">
       <div class="setup-label">Difficulty</div>
-      ${segControl('level', [{ value: 'auto', label: 'Auto' }, ...levels.map((_, i) => ({ value: i, label: String(i + 1) }))], d.level)}
+      ${segControl('level', levelOptions, d.level)}
       <div class="setup-note">${levelNote}</div>
-      <div class="setup-chips">${levels[shown].map(x => `<span class="chip">${x}</span>`).join('')}</div>
+      <div class="setup-chips">${chips}</div>
+      ${chipHint}
     </div>
 
     ${extra}
 
     <div class="setup-buttons">
       <button class="btn-secondary" onclick="closePracticeSetup()">Cancel</button>
-      <button class="btn-primary" id="btn-setup-start">Start</button>
+      <button class="btn-primary" id="btn-setup-start" ${canStart ? '' : 'disabled title="Pick at least one chord besides I"'}>Start</button>
     </div>`;
 }
+
+const NUMERIC_SETUP_FIELDS = ['length', 'level', 'progressionLength'];
 
 function handleSetupClick(e) {
   if (e.target.id === 'setup-modal') { closePracticeSetup(); return; } // backdrop
   if (e.target.id === 'btn-setup-start') { startFromSetup(); return; }
+  if (!setupDraft) return;
+
+  const chip = e.target.closest('.chip-toggle');
+  if (chip) { toggleSetupChord(chip.dataset.chord); return; }
 
   const btn = e.target.closest('.seg-btn');
-  if (!btn || !setupDraft) return;
+  if (!btn) return;
   const field = btn.closest('.seg').dataset.field;
   const raw   = btn.dataset.value;
-  setupDraft[field] = (field === 'length' || field === 'level') && /^\d+$/.test(raw) ? parseInt(raw, 10) : raw;
+  if (field === 'level' && raw === 'custom' && setupDraft.level !== 'custom') {
+    setupDraft.chords = [...setupPalette(setupDraft)]; // start from what's shown
+  }
+  setupDraft[field] = NUMERIC_SETUP_FIELDS.includes(field) && /^\d+$/.test(raw) ? parseInt(raw, 10) : raw;
   renderPracticeSetup();
 }
 
 function startFromSetup() {
+  if (!setupDraft) return;
+  if (setupDraft.type === 'progression' && setupPalette(setupDraft).length < 2) return;
   const { type, ...setup } = setupDraft;
   state.settings.practiceSetup = state.settings.practiceSetup || {};
   state.settings.practiceSetup[type] = setup;
@@ -690,17 +731,98 @@ function renderExercise(ex) {
 
   document.getElementById('feedback-overlay').classList.add('hidden');
 
-  // Build choices with keyboard shortcut badges
   const grid = document.getElementById('choices-grid');
-  grid.innerHTML = ex.choices.map((c, i) => `
-    <button class="choice-btn" data-index="${i}" onclick="handleAnswer(${i})">
-      <span class="choice-shortcut">${i + 1}</span>
-      ${c.label}
-    </button>
-  `).join('');
+  const isMulti = ex.kind === 'multi';
+  grid.classList.toggle('multi', isMulti);
+  document.querySelector('.keyboard-hint').innerHTML = isMulti
+    ? 'Pick a chord in each row, then <kbd>Enter</kbd> to check &nbsp;·&nbsp; <kbd>Space</kbd> to replay'
+    : 'Press <kbd>1</kbd>–<kbd>4</kbd> to answer &nbsp;·&nbsp; <kbd>Space</kbd> / <kbd>A</kbd> to replay &nbsp;·&nbsp; <kbd>Enter</kbd> to continue';
+
+  if (isMulti) {
+    state.multiSelection = ex.slots.map(() => null);
+    renderMultiGrid(ex);
+  } else {
+    // Build choices with keyboard shortcut badges
+    grid.innerHTML = ex.choices.map((c, i) => `
+      <button class="choice-btn" data-index="${i}" onclick="handleAnswer(${i})">
+        <span class="choice-shortcut">${i + 1}</span>
+        ${c.label}
+      </button>
+    `).join('');
+  }
 
   // Clear piano highlights
   document.querySelectorAll('.piano-key.active').forEach(k => k.classList.remove('active'));
+}
+
+/* ── Multi-part answers (one row per chord) ── */
+function renderMultiGrid(ex) {
+  const sel = state.multiSelection;
+  const rows = ex.slots.map((slot, r) => `
+    <div class="multi-row" data-row="${r}">
+      <div class="multi-row-label">${slot.label}</div>
+      <div class="multi-options">
+        ${ex.options.map(o => `
+          <button class="multi-btn ${sel[r] === o.value ? 'selected' : ''} grp-${PROG_CHORD_BY_ID[o.value].group}"
+            data-row="${r}" data-value="${o.value}" onclick="selectMulti(${r}, '${o.value}')">${o.label}</button>`).join('')}
+      </div>
+    </div>`).join('');
+
+  const ready = sel.every(v => v !== null);
+  document.getElementById('choices-grid').innerHTML = `
+    <div class="multi-row given">
+      <div class="multi-row-label">Chord 1</div>
+      <div class="multi-given">Always <strong>${ex.givenFirst}</strong>, the tonic chord.</div>
+    </div>
+    ${rows}
+    <button class="btn-primary multi-check" id="btn-multi-check" onclick="submitMulti()" ${ready ? '' : 'disabled'}>
+      ${ready ? 'Check' : `Pick ${sel.filter(v => v === null).length} more`}
+    </button>`;
+}
+
+function selectMulti(row, value) {
+  if (state.answered || !state.exercise) return;
+  state.multiSelection[row] = value;
+  renderMultiGrid(state.exercise);
+}
+
+function submitMulti() {
+  const ex = state.exercise;
+  if (state.answered || !ex || ex.kind !== 'multi') return;
+  if (state.multiSelection.some(v => v === null)) return;
+  state.answered = true;
+
+  const responseTimeMs = Date.now() - (state.startTime || Date.now());
+  const results  = ex.slots.map((slot, r) => state.multiSelection[r] === slot.correct);
+  const nRight   = results.filter(Boolean).length;
+  const allRight = nRight === results.length;
+
+  // Each chord is its own skill, so weak chords get tracked individually
+  ex.slots.forEach((slot, r) => adaptive.update(`progression_chord_${slot.correct}`, results[r], responseTimeMs));
+  adaptive.update('progression_overall', allRight, responseTimeMs);
+
+  // Mark every row
+  ex.slots.forEach((slot, r) => {
+    const picked = document.querySelector(`.multi-btn[data-row="${r}"][data-value="${state.multiSelection[r]}"]`);
+    if (picked) picked.classList.add(results[r] ? 'correct' : 'incorrect');
+    if (!results[r]) {
+      const right = document.querySelector(`.multi-btn[data-row="${r}"][data-value="${slot.correct}"]`);
+      if (right) right.classList.add('reveal');
+    }
+  });
+  document.querySelectorAll('.multi-btn').forEach(b => b.disabled = true);
+
+  const btn = document.getElementById('btn-multi-check');
+  btn.disabled = false;
+  btn.textContent = 'Next';
+  btn.onclick = () => { state.sessionIndex++; advanceExercise(); };
+
+  showFeedbackPanel(allRight, allRight ? 'Correct!' : `${nRight} of ${results.length} chords`, ex.explain);
+
+  // XP: 4 per chord, +5 for getting the whole progression
+  const xp = Math.max(2, nRight * 4 + (allRight ? 5 : 0));
+  // Wait for "Next" — there's a whole progression to review
+  commitResult(allRight, xp, responseTimeMs, { autoAdvance: false });
 }
 
 /* ── Play / Replay ── */
@@ -719,16 +841,30 @@ function handleReplay() { if (state.exercise) playExercise(state.exercise.replay
 
 /* ── Answer Handling ── */
 function handleAnswer(choiceIndex) {
-  if (state.answered || !state.exercise) return;
+  if (state.answered || !state.exercise || state.exercise.kind === 'multi') return;
   state.answered = true;
 
   const ex             = state.exercise;
   const correct        = choiceIndex === ex.correctIndex;
   const responseTimeMs = Date.now() - (state.startTime || Date.now());
 
-  // XP
+  adaptive.update(ex.skillKey, correct, responseTimeMs);
+  adaptive.update(`${ex.type}_overall`, correct, responseTimeMs);
+
+  showFeedback(correct, ex, choiceIndex);
+  document.querySelectorAll('.choice-btn').forEach(btn => btn.disabled = true);
+
   let xpEarned = correct ? 10 : 2;
   if (correct && responseTimeMs < 3000) xpEarned += 5;
+  commitResult(correct, xpEarned, responseTimeMs);
+}
+
+/**
+ * Shared bookkeeping after any answer: XP, session + lifetime stats,
+ * persistence, achievements, and (optionally) advancing.
+ */
+function commitResult(correct, xpEarned, responseTimeMs, { autoAdvance = true } = {}) {
+  const ex = state.exercise;
 
   state.xp        += xpEarned;
   state.sessionXp += xpEarned;
@@ -751,19 +887,13 @@ function handleAnswer(choiceIndex) {
     state.combo = 0;
   }
 
-  // Update Elo
-  adaptive.update(ex.skillKey, correct, responseTimeMs);
-  adaptive.update(`${ex.type}_overall`, correct, responseTimeMs);
-
   saveState();
   updateHeaderUI();
   announceAchievements(checkAchievements());
 
   document.getElementById('modal-xp').textContent = `+${state.sessionXp} XP`;
 
-  showFeedback(correct, ex, choiceIndex);
-  document.querySelectorAll('.choice-btn').forEach(btn => btn.disabled = true);
-
+  if (!autoAdvance) return;
   // Auto-proceed: immediate advance on correct; otherwise 1.5s
   const delay = (correct && state.settings.autoProceed) ? 600 : 1500;
   state.advanceTimer = setTimeout(() => {
@@ -781,15 +911,19 @@ function showFeedback(correct, ex, selectedIndex) {
   if (!correct && btns[ex.correctIndex]) {
     btns[ex.correctIndex].classList.add('reveal');
   }
+  showFeedbackPanel(correct, correct ? 'Correct!' : 'Not quite...', ex.explain);
+}
 
+function showFeedbackPanel(correct, title, explain) {
+  const color   = correct ? 'var(--success)' : 'var(--error)';
   const overlay = document.getElementById('feedback-overlay');
   overlay.classList.remove('hidden');
+  overlay.style.borderColor = color;
   document.getElementById('feedback-icon').textContent    = correct ? '✓' : '✗';
-  document.getElementById('feedback-text').textContent    = correct ? 'Correct!' : 'Not quite...';
-  document.getElementById('feedback-explain').textContent = ex.explain;
-  overlay.style.borderColor = correct ? 'var(--success)' : 'var(--error)';
-  document.getElementById('feedback-icon').style.color = correct ? 'var(--success)' : 'var(--error)';
-  document.getElementById('feedback-text').style.color  = correct ? 'var(--success)' : 'var(--error)';
+  document.getElementById('feedback-icon').style.color    = color;
+  document.getElementById('feedback-text').textContent    = title;
+  document.getElementById('feedback-text').style.color    = color;
+  document.getElementById('feedback-explain').textContent = explain;
 }
 
 function advanceExercise() {
@@ -931,6 +1065,13 @@ function handleKeyDown(e) {
   }
 
   if (!isExerciseOpen()) return;
+
+  // Multi-part (progression) questions: Enter checks once every row is filled
+  if (!state.answered && e.key === 'Enter' && state.exercise && state.exercise.kind === 'multi') {
+    e.preventDefault();
+    submitMulti();
+    return;
+  }
 
   // 1-4: select answer
   if (!state.answered && e.key >= '1' && e.key <= '4') {
@@ -1151,17 +1292,6 @@ function initSettings() {
     scaleSel.value = state.settings.scaleMode;
     scaleSel.addEventListener('change', () => {
       state.settings.scaleMode = scaleSel.value;
-      saveState();
-    });
-  }
-
-  // Progression mode
-  const progSel = document.getElementById('progression-mode-select');
-  if (progSel) {
-    progSel.innerHTML = [...MODES.map(m => `<option value="${m.id}">${m.name}</option>`), '<option value="mixed">Mixed</option>'].join('');
-    progSel.value = state.settings.progressionMode;
-    progSel.addEventListener('change', () => {
-      state.settings.progressionMode = progSel.value;
       saveState();
     });
   }
